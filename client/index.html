@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FindTime</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-background-primary: #ffffff;
+      --color-background-secondary: #f5f5f4;
+      --color-background-tertiary: #e8e8e6;
+      --color-text-primary: #1a1a18;
+      --color-text-secondary: #6b6b67;
+      --color-border-tertiary: rgba(0,0,0,0.12);
+      --color-border-secondary: rgba(0,0,0,0.22);
+      --color-border-primary: rgba(0,0,0,0.35);
+      --border-radius-md: 8px;
+      --border-radius-lg: 12px;
+      --font-sans: system-ui, -apple-system, sans-serif;
+      --font-mono: ui-monospace, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --color-background-primary: #1c1c1a;
+        --color-background-secondary: #252523;
+        --color-background-tertiary: #2e2e2b;
+        --color-text-primary: #f0efe8;
+        --color-text-secondary: #9a9a94;
+        --color-border-tertiary: rgba(255,255,255,0.10);
+        --color-border-secondary: rgba(255,255,255,0.18);
+        --color-border-primary: rgba(255,255,255,0.28);
+      }
+    }
+    body { font-family: var(--font-sans); background: var(--color-background-tertiary); min-height: 100vh; display: flex; justify-content: center; padding: 2rem 1rem; }
+    .app { width: 100%; max-width: 700px; }
+    .header { margin-bottom: 1.5rem; }
+    .header h1 { font-size: 22px; font-weight: 500; color: var(--color-text-primary); }
+    .header p { font-size: 14px; color: var(--color-text-secondary); margin-top: 4px; }
+    .tabs { display: flex; margin-bottom: 1.5rem; border-bottom: 0.5px solid var(--color-border-tertiary); }
+    .tab { font-size: 14px; padding: 8px 16px; cursor: pointer; border: none; background: none; color: var(--color-text-secondary); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .tab.active { color: var(--color-text-primary); border-bottom: 2px solid var(--color-text-primary); font-weight: 500; }
+    .tab:hover:not(.active) { color: var(--color-text-primary); }
+    .section { display: none; }
+    .section.active { display: block; }
+    .card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 1rem 1.25rem; margin-bottom: 1rem; }
+    .section-label { font-size: 12px; font-weight: 500; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; }
+    .btn { font-size: 14px; padding: 9px 18px; border: 0.5px solid var(--color-border-secondary); border-radius: var(--border-radius-md); background: var(--color-background-secondary); color: var(--color-text-primary); cursor: pointer; }
+    .btn:hover { background: var(--color-background-tertiary); }
+    .btn-full { width: 100%; text-align: center; display: block; }
+    .btn-primary { background: var(--color-text-primary); color: var(--color-background-primary); border-color: var(--color-text-primary); }
+    .btn-primary:hover { opacity: 0.85; }
+    input, select, textarea { font-size: 14px; padding: 8px 12px; border: 0.5px solid var(--color-border-secondary); border-radius: var(--border-radius-md); background: var(--color-background-secondary); color: var(--color-text-primary); outline: none; }
+    input:focus, select:focus, textarea:focus { border-color: var(--color-border-primary); }
+
+    /* Room Creation */
+    .emoji-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+    .emoji-btn { aspect-ratio: 1; font-size: 28px; background: var(--color-background-secondary); border: 0.5px solid var(--color-border-secondary); border-radius: var(--border-radius-md); cursor: pointer; padding: 0; transition: all 0.15s; }
+    .emoji-btn:hover { background: var(--color-background-tertiary); }
+    .emoji-btn.selected { border-color: var(--color-text-primary); background: var(--color-background-primary); }
+
+    /* Room */
+    .room-code { font-size: 32px; font-weight: 500; letter-spacing: 0.12em; color: var(--color-text-primary); font-family: var(--font-mono); margin: 8px 0; }
+    .room-meta { display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--color-background-secondary); border-radius: var(--border-radius-md); margin-bottom: 12px; }
+    .room-meta-emoji { font-size: 28px; }
+    .room-meta-info { flex: 1; }
+    .room-meta-name { font-size: 15px; font-weight: 500; color: var(--color-text-primary); margin: 0; }
+    .room-meta-duration { font-size: 12px; color: var(--color-text-secondary); margin: 2px 0 0; }
+    .invite-box { background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 10px 14px; display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+    .invite-url { font-size: 13px; color: var(--color-text-secondary); flex: 1; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .copy-btn { font-size: 12px; padding: 5px 10px; border: 0.5px solid var(--color-border-secondary); border-radius: var(--border-radius-md); background: var(--color-background-primary); color: var(--color-text-primary); cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+    .copy-btn:hover { background: var(--color-background-secondary); }
+
+    /* Participants */
+    .participant-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 0.5px solid var(--color-border-tertiary); }
+    .participant-row:last-child { border-bottom: none; }
+    .avatar { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 500; flex-shrink: 0; }
+    .p-name { font-size: 14px; flex: 1; color: var(--color-text-primary); font-weight: 500; }
+    .p-status { font-size: 12px; color: var(--color-text-secondary); }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+    .dot-done { background: #1D9E75; }
+    .dot-pending { background: #EF9F27; }
+
+    /* Join */
+    .join-panel { text-align: center; padding: 1rem 0; }
+    .join-panel h2 { font-size: 18px; font-weight: 500; margin-bottom: 6px; color: var(--color-text-primary); }
+    .join-panel p { font-size: 14px; color: var(--color-text-secondary); margin-bottom: 1.5rem; }
+    .alias-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 1rem 0; }
+    .chip { font-size: 13px; padding: 5px 12px; border: 0.5px solid var(--color-border-secondary); border-radius: 20px; cursor: pointer; background: var(--color-background-secondary); color: var(--color-text-secondary); }
+    .chip:hover, .chip.selected { background: var(--color-text-primary); color: var(--color-background-primary); border-color: var(--color-text-primary); }
+    .or-divider { font-size: 12px; color: var(--color-text-secondary); margin: 8px 0; }
+
+    /* Availability grid */
+    .grid-outer { display: flex; }
+    .time-col-fixed { width: 52px; flex-shrink: 0; }
+    .time-header-spacer { height: 48px; }
+    .time-label-cell { height: 22px; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px; font-size: 11px; color: var(--color-text-secondary); }
+    .time-label-cell.hour { color: var(--color-text-primary); }
+    .days-scroll { flex: 1; overflow-x: auto; }
+    .days-grid { display: grid; min-width: 420px; }
+    .day-header-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 2px 6px; cursor: pointer; border-radius: var(--border-radius-md); }
+    .day-header-wrap:hover { background: var(--color-background-secondary); }
+    .day-label { font-size: 12px; font-weight: 500; color: var(--color-text-secondary); }
+    .day-fill-btn { font-size: 10px; padding: 2px 6px; border: 0.5px solid var(--color-border-secondary); border-radius: 10px; background: var(--color-background-secondary); color: var(--color-text-secondary); pointer-events: none; }
+    .day-header-wrap:hover .day-fill-btn { background: #1D9E75; color: white; border-color: #0F6E56; }
+    .slot-cell { height: 22px; cursor: pointer; background: var(--color-background-secondary); border-bottom: 0.5px solid var(--color-border-tertiary); transition: background 0.05s; user-select: none; }
+    .slot-cell.hour-start { border-top: 0.5px solid var(--color-border-secondary); }
+    .slot-cell.free { background: #1D9E75; border-color: #0F6E56; }
+    .slot-cell:hover { opacity: 0.75; }
+
+    /* Quick fill */
+    .quickfill-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+    .quickfill-bar span { font-size: 13px; color: var(--color-text-secondary); }
+    .qbtn { font-size: 12px; padding: 5px 10px; border: 0.5px solid var(--color-border-secondary); border-radius: var(--border-radius-md); background: var(--color-background-secondary); color: var(--color-text-primary); cursor: pointer; }
+    .qbtn:hover { background: #1D9E75; color: white; border-color: #0F6E56; }
+
+    /* Results */
+    .result-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 0.5px solid var(--color-border-tertiary); }
+    .result-item:last-child { border-bottom: none; }
+    .result-item.best .result-day { color: #0F6E56; }
+    .result-day { font-size: 15px; font-weight: 500; color: var(--color-text-primary); min-width: 42px; }
+    .result-time { font-size: 13px; color: var(--color-text-secondary); flex: 1; }
+    .result-bar-wrap { width: 80px; height: 6px; background: var(--color-background-secondary); border-radius: 3px; overflow: hidden; }
+    .result-bar { height: 6px; border-radius: 3px; background: #1D9E75; }
+    .result-count { font-size: 12px; color: var(--color-text-secondary); min-width: 48px; text-align: right; }
+    .empty-state { text-align: center; padding: 2rem; color: var(--color-text-secondary); font-size: 14px; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <h1><i class="ti ti-calendar-event" aria-hidden="true" style="font-size:20px;vertical-align:-2px;margin-right:8px"></i>FindTime</h1>
+    <p>Find the perfect time to meet.</p>
+  </div>
+
+  <!-- ROOM CREATION SCREEN (Landing Page) -->
+  <div id="tab-create" class="section active">
+    <div class="card" style="padding: 2rem;">
+      <h2 style="font-size: 20px; font-weight: 500; margin: 0 0 8px; color: var(--color-text-primary);">Create a room</h2>
+      <p style="font-size: 14px; color: var(--color-text-secondary); margin: 0 0 24px;">Set up your meeting</p>
+
+      <div style="margin-bottom: 20px;">
+        <label style="font-size: 13px; font-weight: 500; color: var(--color-text-primary); display: block; margin-bottom: 8px;">What's the meeting for?</label>
+        <input type="text" id="room-name-input" placeholder="e.g., Coffee with friends, Movie night" style="width: 100%;" />
+      </div>
+
+      <div style="margin-bottom: 20px;">
+        <label style="font-size: 13px; font-weight: 500; color: var(--color-text-primary); display: block; margin-bottom: 12px;">Pick an emoji</label>
+        <div class="emoji-grid">
+          <button class="emoji-btn" data-emoji="☕" title="Coffee">☕</button>
+          <button class="emoji-btn" data-emoji="🍿" title="Movie">🍿</button>
+          <button class="emoji-btn" data-emoji="🎮" title="Gaming">🎮</button>
+          <button class="emoji-btn" data-emoji="🍽️" title="Dinner">🍽️</button>
+          <button class="emoji-btn" data-emoji="🎉" title="Party">🎉</button>
+          <button class="emoji-btn" data-emoji="⚽" title="Sports">⚽</button>
+          <button class="emoji-btn" data-emoji="💼" title="Work">💼</button>
+          <button class="emoji-btn" data-emoji="📚" title="Study">📚</button>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 20px;">
+        <label style="font-size: 13px; font-weight: 500; color: var(--color-text-primary); display: block; margin-bottom: 12px;">How long do you need?</label>
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <input type="range" id="duration-slider" min="0.5" max="4" step="0.5" value="1" style="flex: 1;" />
+          <span id="duration-display" style="font-size: 14px; font-weight: 500; color: var(--color-text-primary); min-width: 60px; text-align: right;">1 hour</span>
+        </div>
+        <p style="font-size: 12px; color: var(--color-text-secondary); margin: 8px 0 0;">30-min increments</p>
+      </div>
+
+      <button class="btn btn-primary btn-full" onclick="createRoom()" style="padding: 10px;">Generate room →</button>
+    </div>
+  </div>
+
+  <!-- MAIN APP (hidden until room is created) -->
+  <div id="app-container" class="hidden">
+    <div class="tabs">
+      <button class="tab active" onclick="showTab('room')" id="tab-btn-room" style="display:none">Room</button>
+      <button class="tab" onclick="showTab('join')" id="tab-btn-join" style="display:none">Join</button>
+      <button class="tab" onclick="showTab('avail')" id="tab-btn-avail">Availability</button>
+      <button class="tab" onclick="showTab('results')" id="tab-btn-results">Best times</button>
+    </div>
+
+    <!-- ROOM TAB (Host View) -->
+    <div id="tab-room" class="section active">
+      <p class="section-label">Your room</p>
+      <div class="card">
+        <div class="room-meta">
+          <div class="room-meta-emoji" id="room-emoji-display">☕</div>
+          <div class="room-meta-info">
+            <p class="room-meta-name" id="room-name-display">Meeting</p>
+            <p class="room-meta-duration" id="room-duration-display">Looking for 1-hour slots</p>
+          </div>
+        </div>
+        <div class="room-code" id="room-code-display">—</div>
+        <div class="invite-box">
+          <span class="invite-url" id="invite-url-display">Generate a room to get your link</span>
+          <button class="copy-btn" onclick="copyLink()" id="copy-btn" style="display:none"><i class="ti ti-copy" aria-hidden="true"></i> Copy</button>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="location.href='/'"><i class="ti ti-refresh" aria-hidden="true"></i> New room</button>
+          <button class="btn" onclick="showTab('join')">Preview join screen →</button>
+        </div>
+      </div>
+      <p class="section-label">Participants</p>
+      <div class="card"><div id="participant-list"><p style="font-size:14px;color:var(--color-text-secondary)">No one has joined yet.</p></div></div>
+    </div>
+
+    <!-- JOIN TAB (Guest Greeting) -->
+    <div id="tab-join" class="section">
+      <p class="section-label">What your friends see</p>
+      <div class="card">
+        <div class="join-panel">
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px; justify-content: center;">
+            <div style="font-size: 28px;" id="join-emoji-display">☕</div>
+            <div style="text-align: left;">
+              <h2 id="join-room-name" style="font-size: 16px; font-weight: 500; color: var(--color-text-primary); margin: 0;">Meeting</h2>
+              <p id="join-room-duration" style="font-size: 12px; color: var(--color-text-secondary); margin: 2px 0 0;">Looking for 1-hour slots</p>
+            </div>
+          </div>
+          <h2 style="font-size: 18px; font-weight: 500; margin-bottom: 6px; color: var(--color-text-primary);">You're invited!</h2>
+          <p style="font-size: 14px; color: var(--color-text-secondary); margin-bottom: 1.5rem;">Enter your name or pick an alias to stay anonymous.</p>
+          <input type="text" id="join-name-input" placeholder="Enter your name..." style="width:100%;max-width:280px;text-align:center;margin: 0 auto; display: block;" />
+          <div class="or-divider">— or pick an alias —</div>
+          <div class="alias-chips" id="alias-chips"></div>
+          <div style="margin-top:1.5rem">
+            <button class="btn btn-primary" onclick="joinRoom()" style="min-width:160px">Join the room →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AVAILABILITY TAB -->
+    <div id="tab-avail" class="section">
+      <p class="section-label">Mark your free time</p>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+        <label style="font-size:14px;color:var(--color-text-secondary)">Editing as:</label>
+        <select id="person-select" onchange="renderAvailGrid()"></select>
+      </div>
+
+      <div style="margin-bottom: 16px; padding: 12px; background: var(--color-background-secondary); border-radius: var(--border-radius-md);">
+        <label style="font-size: 12px; font-weight: 500; color: var(--color-text-secondary); display: block; margin-bottom: 8px;">Travel time buffer</label>
+        <select id="travel-buffer" onchange="updateTravelBuffer()">
+          <option value="0">0 mins</option>
+          <option value="15">15 mins</option>
+          <option value="30" selected>30 mins</option>
+          <option value="45">45 mins</option>
+          <option value="60">60 mins</option>
+        </select>
+        <p style="font-size: 11px; color: var(--color-text-secondary); margin: 6px 0 0;">With travel buffer, your actual availability window is reduced by this amount on each side.</p>
+      </div>
+
+      <div class="quickfill-bar">
+        <span>Quick fill:</span>
+        <button class="qbtn" onclick="quickFill(9,17)">9–5</button>
+        <button class="qbtn" onclick="quickFill(18,23)">Evening (6–11pm)</button>
+        <button class="qbtn" onclick="quickFill(8,23)">All day</button>
+        <button class="qbtn" onclick="quickFill(null,null,true)" style="margin-left:auto">Clear all</button>
+      </div>
+      <div class="card" style="padding:1rem 0.75rem">
+        <div class="grid-outer">
+          <div class="time-col-fixed" id="time-labels"><div class="time-header-spacer"></div></div>
+          <div class="days-scroll">
+            <div class="days-grid" id="avail-grid"></div>
+          </div>
+        </div>
+        <div style="display:flex;gap:16px;margin-top:10px;padding:0 4px;flex-wrap:wrap;align-items:center">
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary)"><div style="width:12px;height:12px;border-radius:2px;background:#1D9E75"></div>Free</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary)"><div style="width:12px;height:12px;border-radius:2px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary)"></div>Busy</div>
+          <span style="font-size:12px;color:var(--color-text-secondary);margin-left:auto">Click day name to fill 9–5 · drag to select</span>
+        </div>
+      </div>
+      <button class="btn btn-full" onclick="showTab('results')" style="margin-top: 16px;">See best times →</button>
+    </div>
+
+    <!-- RESULTS TAB -->
+    <div id="tab-results" class="section">
+      <p class="section-label">Best meeting slots</p>
+      <div class="card" id="results-container"><div class="empty-state">Enter availability first to see suggestions.</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const ALIASES = ['Purple Fox','Neon Panda','Silver Wolf','Crimson Owl','Jade Hawk','Storm Raven','Ember Bear','Ghost Lynx','Iron Drake','Copper Toad'];
+  const AVAIL_COLORS = [['#E6F1FB','#0C447C'],['#E1F5EE','#0F6E56'],['#FAEEDA','#633806'],['#FAECE7','#993C1D'],['#EEEDFE','#3C3489'],['#EAF3DE','#3B6D11']];
+  const START_HOUR = 8, END_HOUR = 23;
+  const TOTAL_SLOTS = (END_HOUR - START_HOUR) * 2;
+
+  let currentRoomCode = null;
+  let currentRoomName = null;
+  let currentRoomEmoji = null;
+  let currentRoomDuration = 60;
+  let currentParticipantId = null;
+  let isHostView = false;
+  let isGuestView = false;
+  let participants = [];
+  let availability = {};
+  let travelBuffer = 30;
+  let isDragging = false, dragValue = null;
+  let refreshInterval = null;
+  let resultsRefreshInterval = null;
+
+  // Emoji picker functionality
+  document.querySelectorAll('.emoji-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.emoji-btn').forEach(b => b.classList.remove('selected'));
+      this.classList.add('selected');
+    });
+  });
+
+  // Duration slider
+  const durationSlider = document.getElementById('duration-slider');
+  const durationDisplay = document.getElementById('duration-display');
+  durationSlider?.addEventListener('input', function() {
+    const val = parseFloat(this.value);
+    const hours = Math.floor(val);
+    const mins = (val % 1) * 60;
+    durationDisplay.textContent = hours > 0 && mins > 0 ? `${hours}h ${mins}m` : (hours > 0 ? `${hours} hour${hours > 1 ? 's' : ''}` : `${mins}m`);
+  });
+
+  async function createRoom() {
+    const name = document.getElementById('room-name-input').value.trim();
+    const selectedEmoji = document.querySelector('.emoji-btn.selected')?.getAttribute('data-emoji');
+    const duration = parseFloat(durationSlider.value) * 60;
+
+    if (!name || !selectedEmoji) {
+      alert('Please enter a room name and select an emoji');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/rooms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, emoji: selectedEmoji, durationMinutes: duration })
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Server error');
+      const room = await res.json();
+      
+      currentRoomCode = room.code;
+      currentRoomName = room.name;
+      currentRoomEmoji = room.emoji;
+      currentRoomDuration = room.duration_minutes;
+      isHostView = true;
+
+      displayRoomUI();
+      document.getElementById('tab-btn-room').style.display = isHostView ? 'block' : 'none';
+      document.getElementById('tab-btn-join').style.display = isGuestView ? 'block' : 'none';
+      startRefreshLoop();
+    } catch (error) {
+      console.error('Error creating room:', error);
+      alert('Failed to create room');
+    }
+  }
+
+  function displayRoomUI() {
+    document.getElementById('tab-create').classList.remove('active');
+    document.getElementById('app-container').classList.remove('hidden');
+
+    const displayCode = currentRoomCode.slice(0,3)+'-'+currentRoomCode.slice(3);
+    document.getElementById('room-code-display').textContent = displayCode;
+    document.getElementById('room-name-display').textContent = currentRoomName;
+    document.getElementById('room-emoji-display').textContent = currentRoomEmoji;
+    document.getElementById('room-duration-display').textContent = `Looking for ${currentRoomDuration}-minute slots`;
+    
+    const url = window.location.origin + '/room/' + currentRoomCode;
+    document.getElementById('invite-url-display').textContent = url;
+    document.getElementById('copy-btn').style.display = 'inline-block';
+    window.history.replaceState({}, '', '/room/' + currentRoomCode);
+
+    document.getElementById('join-emoji-display').textContent = currentRoomEmoji;
+    document.getElementById('join-room-name').textContent = currentRoomName;
+    document.getElementById('join-room-duration').textContent = `Looking for ${currentRoomDuration}-minute slots`;
+
+    renderAliasChips();
+  }
+
+  function copyLink() {
+    navigator.clipboard.writeText(document.getElementById('invite-url-display').textContent).catch(()=>{});
+    const btn = document.getElementById('copy-btn');
+    btn.innerHTML = 'Copied!';
+    setTimeout(() => { btn.innerHTML = '<i class="ti ti-copy" aria-hidden="true"></i> Copy'; }, 1500);
+  }
+
+  function renderAliasChips() {
+    const shuffled = [...ALIASES].sort(()=>Math.random()-0.5).slice(0,6);
+    document.getElementById('alias-chips').innerHTML = shuffled.map(a =>
+      `<div class="chip" onclick="selectAlias(this,'${a}')">${a}</div>`).join('');
+  }
+
+  function selectAlias(el, alias) {
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+    document.getElementById('join-name-input').value = alias;
+  }
+
+  async function joinRoom() {
+    const name = document.getElementById('join-name-input').value.trim();
+    if (!name) { document.getElementById('join-name-input').style.borderColor='#E24B4A'; return; }
+    document.getElementById('join-name-input').style.borderColor='';
+    
+    try {
+      const joinRes = await fetch(`/api/rooms/${currentRoomCode}/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      if (!joinRes.ok) {
+        const err = await joinRes.json().catch(() => ({}));
+        alert(err.error || 'Failed to join room');
+        return;
+      }
+      const participant = await joinRes.json();
+
+      currentParticipantId = participant.id;
+      isGuestView = true;
+      await loadRoom(currentRoomCode);
+      document.getElementById('tab-btn-room').style.display = 'none';
+      document.getElementById('tab-btn-join').style.display = 'none';
+      renderParticipants();
+      updatePersonSelect();
+      showTab('avail');
+    } catch (error) {
+      console.error('Error joining room:', error);
+      alert('Failed to join room');
+    }
+  }
+
+  async function loadRoom(code) {
+    try {
+      const res = await fetch(`/api/rooms/${code}`);
+      const room = await res.json();
+      participants = room.participants || [];
+      currentRoomCode = code;
+      currentRoomName = room.name;
+      currentRoomEmoji = room.emoji;
+      currentRoomDuration = room.duration_minutes;
+      return room;
+    } catch (error) {
+      console.error('Error loading room:', error);
+      return null;
+    }
+  }
+
+  function loadRoomFromURL() {
+    const path = window.location.pathname;
+    const match = path.match(/\/room\/([A-Z0-9]{6})/);
+    if (match) {
+      const code = match[1];
+      currentRoomCode = code;
+      isGuestView = true;
+      
+      loadRoom(code).then(() => {
+        displayRoomUI();
+        document.getElementById('tab-btn-room').style.display = isHostView ? 'block' : 'none';
+        document.getElementById('tab-btn-join').style.display = isGuestView ? 'block' : 'none';
+        showTab('join');
+        startRefreshLoop();
+      });
+      return true;
+    }
+    return false;
+  }
+
+  async function renderParticipants() {
+    const el = document.getElementById('participant-list');
+    if (!participants.length) { el.innerHTML = '<p style="font-size:14px;color:var(--color-text-secondary)">No one has joined yet.</p>'; return; }
+    
+    await loadAllParticipantAvailability();
+    
+    el.innerHTML = participants.map((p,i) => {
+      const [bg,fg] = AVAIL_COLORS[i % AVAIL_COLORS.length];
+      const participantKeys = Object.keys(availability).filter(key => key.startsWith(p.id + '-'));
+      const hasAny = participantKeys.length > 0;
+      return `<div class="participant-row">
+        <div class="avatar" style="background:${bg};color:${fg}">${p.name.slice(0,2).toUpperCase()}</div>
+        <span class="p-name">${p.name}</span>
+        <span class="p-status"><span class="status-dot ${hasAny?'dot-done':'dot-pending'}"></span>${hasAny?'Set':'Pending'}</span>
+      </div>`;
+    }).join('');
+  }
+
+  function updatePersonSelect() {
+    const sel = document.getElementById('person-select');
+    
+    if (isGuestView) {
+      sel.innerHTML = `<option value="${currentParticipantId}">${participants.find(p => p.id === currentParticipantId)?.name || 'You'}</option>`;
+      sel.value = currentParticipantId;
+      sel.disabled = true;
+    } else {
+      sel.innerHTML = participants.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+      if (currentParticipantId) sel.value = currentParticipantId;
+    }
+    
+    renderAvailGrid();
+  }
+
+  function renderAvailGrid() {
+    const sel = document.getElementById('person-select');
+    const id = parseInt(sel.value);
+    const grid = document.getElementById('avail-grid');
+    const timeCol = document.getElementById('time-labels');
+    
+    if (isNaN(id)) {
+      grid.innerHTML = `<div style="padding:1rem;font-size:14px;color:var(--color-text-secondary);grid-column:1/-1">Join the room first.</div>`;
+      timeCol.innerHTML = '<div class="time-header-spacer"></div>';
+      return;
+    }
+    
+    grid.style.gridTemplateColumns = `repeat(${DAYS.length}, 1fr)`;
+    let html = '';
+    DAYS.forEach((d, di) => {
+      html += `<div class="day-header-wrap" onclick="fillDay(${id},${di},9,17)" title="Click to fill 9–5">
+        <span class="day-label">${d}</span>
+        <span class="day-fill-btn">9–5</span>
+      </div>`;
+    });
+    
+    for (let si = 0; si < TOTAL_SLOTS; si++) {
+      const isHour = si % 2 === 0;
+      DAYS.forEach((d, di) => {
+        const key = `${id}-${di}-${si}`;
+        const free = availability[key] || false;
+        html += `<div class="slot-cell${free?' free':''}${isHour?' hour-start':''}"
+          data-id="${id}" data-di="${di}" data-si="${si}"
+          onmousedown="startDrag(event,${id},${di},${si})"
+          onmouseover="continueDrag(event,${id},${di},${si})"
+          ontouchstart="handleTouch(event,${id},${di},${si})"></div>`;
+      });
+    }
+    grid.innerHTML = html;
+    
+    let tlHtml = '<div class="time-header-spacer"></div>';
+    for (let si = 0; si < TOTAL_SLOTS; si++) {
+      const hour = START_HOUR + Math.floor(si / 2);
+      const isHour = si % 2 === 0;
+      const label = isHour ? `${hour % 12 || 12}${hour < 12 ? 'am' : 'pm'}` : '';
+      tlHtml += `<div class="time-label-cell${isHour?' hour':''}">${label}</div>`;
+    }
+    timeCol.innerHTML = tlHtml;
+  }
+
+  function startDrag(e, id, di, si) {
+    e.preventDefault();
+    const key = `${id}-${di}-${si}`;
+    isDragging = true;
+    dragValue = !availability[key];
+    setCell(id, di, si, dragValue);
+  }
+  
+  function continueDrag(e, id, di, si) {
+    if (!isDragging) return;
+    setCell(id, di, si, dragValue);
+  }
+  
+  function handleTouch(e, id, di, si) {
+    e.preventDefault();
+    const key = `${id}-${di}-${si}`;
+    isDragging = true;
+    dragValue = !availability[key];
+    setCell(id, di, si, dragValue);
+  }
+
+  // Touch drag: track finger position and apply to whichever cell is underneath (Fix 8)
+  document.addEventListener('touchmove', e => {
+    if (!isDragging) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    if (el && el.classList.contains('slot-cell')) {
+      const id = parseInt(el.dataset.id);
+      const di = parseInt(el.dataset.di);
+      const si = parseInt(el.dataset.si);
+      if (!isNaN(id) && !isNaN(di) && !isNaN(si)) setCell(id, di, si, dragValue);
+    }
+  }, { passive: false });
+
+  document.addEventListener('touchend', () => { isDragging = false; dragValue = null; });
+  document.addEventListener('mouseup', () => { isDragging = false; dragValue = null; });
+
+  function setCell(id, di, si, val) {
+    const key = `${id}-${di}-${si}`;
+    availability[key] = val;
+    const cell = document.querySelector(`.slot-cell[data-id="${id}"][data-di="${di}"][data-si="${si}"]`);
+    if (cell) cell.classList.toggle('free', val);
+    fetch('/api/availability', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ participantId: id, day: di, timeSlot: si, isAvailable: val })
+    });
+    // renderParticipants() removed — polling loop handles it every 2s (Fix 2)
+  }
+
+  function fillDay(id, di, startHour, endHour) {
+    const from = (startHour - START_HOUR) * 2;
+    const to = (endHour - START_HOUR) * 2;
+    for (let si = from; si < to; si++) {
+      setCell(id, di, si, true);
+    }
+  }
+
+  function quickFill(startHour, endHour, clear) {
+    const id = parseInt(document.getElementById('person-select').value);
+    if (isNaN(id)) return;
+
+    // Collect changes locally first, then send to server sequentially (Fix 3)
+    const changes = [];
+    if (clear) {
+      for (let di = 0; di < DAYS.length; di++) {
+        for (let si = 0; si < TOTAL_SLOTS; si++) {
+          const key = `${id}-${di}-${si}`;
+          if (availability[key]) { availability[key] = false; changes.push({ di, si, val: false }); }
+        }
+      }
+    } else {
+      const from = (startHour - START_HOUR) * 2;
+      const to = (endHour - START_HOUR) * 2;
+      for (let di = 0; di < DAYS.length; di++) {
+        for (let si = from; si < to; si++) {
+          const key = `${id}-${di}-${si}`;
+          if (!availability[key]) { availability[key] = true; changes.push({ di, si, val: true }); }
+        }
+      }
+    }
+    renderAvailGrid();
+
+    // Send to server one at a time in the background without blocking the UI
+    (async () => {
+      for (const { di, si, val } of changes) {
+        await fetch('/api/availability', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ participantId: id, day: di, timeSlot: si, isAvailable: val })
+        });
+      }
+    })();
+  }
+
+  function updateTravelBuffer() {
+    travelBuffer = parseInt(document.getElementById('travel-buffer').value);
+  }
+
+  async function loadAllParticipantAvailability() {
+    // Fetch all participants in parallel instead of sequentially (Fix 6)
+    await Promise.all(participants.map(async p => {
+      try {
+        const res = await fetch(`/api/participants/${p.id}/availability`);
+        if (res.ok) {
+          const availData = await res.json();
+          availData.forEach(a => {
+            availability[`${p.id}-${a.day}-${a.time_slot}`] = a.is_available;
+          });
+        }
+      } catch (error) {
+        console.error('Error loading availability:', error);
+      }
+    }));
+  }
+
+  async function computeAndShow(autoRefresh = false) {
+    if (!autoRefresh) showTab('results');
+    await loadAllParticipantAvailability();
+    
+    const container = document.getElementById('results-container');
+    if (!participants.length) { container.innerHTML = '<div class="empty-state">No participants yet — join the room first!</div>'; return; }
+    
+    const hasData = Object.keys(availability).length > 0;
+    if (!hasData) { container.innerHTML = '<div class="empty-state">No availability entered yet. Mark some free slots first!</div>'; return; }
+    
+    const total = participants.length;
+    let slots = [];
+    
+    for (let di = 0; di < DAYS.length; di++) {
+      for (let si = 0; si < TOTAL_SLOTS; si++) {
+        let freeCount = 0;
+        for (let p of participants) {
+          const key = `${p.id}-${di}-${si}`;
+          if (availability[key]) freeCount++;
+        }
+        if (freeCount > 0) slots.push({ di, si, freeCount });
+      }
+    }
+    
+    const minSlots = (currentRoomDuration / 30);
+    const merged = [];
+    let i = 0;
+    while (i < slots.length) {
+      let run = [slots[i]];
+      while (i + 1 < slots.length &&
+             slots[i+1].di === slots[i].di &&
+             slots[i+1].si === slots[i].si + 1) {
+        i++; run.push(slots[i]);
+      }
+      if (run.length >= minSlots) {
+        // Break the run into individual blocks of minSlots length
+        for (let j = 0; j <= run.length - minSlots; j++) {
+          const block = run.slice(j, j + minSlots);
+          const first = block[0], last = block[block.length-1];
+          const sH = START_HOUR + Math.floor(first.si/2), sM = first.si%2===0?'00':'30';
+          const eSlot = last.si + 1;
+          const eH = START_HOUR + Math.floor(eSlot/2), eM = eSlot%2===0?'00':'30';
+          const fmt = (h,m) => `${h%12||12}:${m}${h<12?'am':'pm'}`;
+          // Use minimum availability across this block
+          const minFreeInBlock = Math.min(...block.map(b => b.freeCount));
+          merged.push({ day: DAYS[first.di], time: `${fmt(sH,sM)} – ${fmt(eH,eM)}`, freeCount: minFreeInBlock, total, slots: minSlots, di: first.di, startSlot: first.si, endSlot: last.si + 1 });
+        }
+      }
+      i++;
+    }
+    
+    merged.sort((a,b) => b.freeCount - a.freeCount || b.slots - a.slots);
+
+    // Filter to non-overlapping blocks so one long run doesn't dominate the top 10 (Fix 11)
+    const seen = [];
+    for (const block of merged) {
+      const overlaps = seen.some(r => r.di === block.di && block.startSlot < r.endSlot && block.endSlot > r.startSlot);
+      if (!overlaps) seen.push(block);
+    }
+    const top = seen.slice(0,10);
+    if (!top.length) { container.innerHTML = '<div class="empty-state">No overlapping slots found. Try adding more availability!</div>'; return; }
+    
+    container.innerHTML = top.map((r,i) => `
+      <div class="result-item${i===0?' best':''}">
+        <div class="result-day">${r.day}</div>
+        <div class="result-time">${r.time}</div>
+        <div class="result-bar-wrap"><div class="result-bar" style="width:${Math.round(r.freeCount/r.total*100)}%"></div></div>
+        <div class="result-count">${r.freeCount}/${r.total}</div>
+      </div>`).join('');
+    
+    if (!autoRefresh) startResultsRefreshLoop();
+  }
+
+  function showTab(name) {
+    const names = ['room','join','avail','results'];
+    document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', names[i]===name));
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.getElementById('tab-'+name).classList.add('active');
+    if (name==='avail') updatePersonSelect();
+    if (name==='results') {
+      computeAndShow(true); // show immediately on tab switch (Fix 5)
+      if (!resultsRefreshInterval) startResultsRefreshLoop();
+    }
+  }
+
+  function startRefreshLoop() {
+    if (refreshInterval) clearInterval(refreshInterval);
+    refreshInterval = setInterval(async () => {
+      if (currentRoomCode) {
+        await loadRoom(currentRoomCode);
+        await renderParticipants();
+      }
+    }, 2000);
+  }
+
+  function startResultsRefreshLoop() {
+    if (resultsRefreshInterval) clearInterval(resultsRefreshInterval);
+    resultsRefreshInterval = setInterval(async () => {
+      await computeAndShow(true);
+    }, 3000);
+  }
+
+  if (!loadRoomFromURL()) {
+    renderAliasChips();
+  }
+</script>
+</body>
+</html>
