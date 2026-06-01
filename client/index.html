@@ -416,6 +416,81 @@
     /* ── Range input ── */
     input[type=range] { padding: 0; border: none; background: transparent; box-shadow: none; }
     input[type=range]:focus { box-shadow: none; }
+
+    /* ── Landing page ── */
+    .landing-hero {
+      text-align: center;
+      padding: 2.5rem 1rem 2rem;
+    }
+    .landing-hero-icon {
+      font-size: 52px;
+      margin-bottom: 18px;
+      display: block;
+    }
+    .landing-hero h2 {
+      font-size: 32px;
+      font-weight: 800;
+      color: var(--color-text-primary);
+      letter-spacing: -0.6px;
+      line-height: 1.2;
+      margin-bottom: 12px;
+    }
+    .landing-hero p {
+      font-size: 16px;
+      color: var(--color-text-secondary);
+      max-width: 400px;
+      margin: 0 auto;
+      line-height: 1.65;
+    }
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      background: var(--color-border-tertiary);
+      border-radius: var(--border-radius-md);
+      overflow: hidden;
+      margin-bottom: 0;
+    }
+    .step {
+      background: var(--color-background-primary);
+      padding: 1.25rem 1rem;
+      text-align: center;
+    }
+    .step-icon { font-size: 26px; margin-bottom: 10px; display: block; }
+    .step-title { font-size: 13px; font-weight: 700; color: var(--color-text-primary); margin-bottom: 5px; }
+    .step-desc { font-size: 12px; color: var(--color-text-secondary); line-height: 1.55; }
+    .action-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .action-card {
+      background: var(--color-background-primary);
+      border-radius: var(--border-radius-lg);
+      padding: 1.5rem 1.25rem 1.25rem;
+      box-shadow: var(--shadow-card);
+      display: flex;
+      flex-direction: column;
+    }
+    .action-card-icon { font-size: 30px; margin-bottom: 12px; }
+    .action-card h3 { font-size: 15px; font-weight: 700; color: var(--color-text-primary); margin-bottom: 5px; }
+    .action-card p { font-size: 13px; color: var(--color-text-secondary); line-height: 1.5; flex: 1; margin-bottom: 16px; }
+    .code-join-row { display: flex; gap: 8px; }
+    .code-join-row input {
+      flex: 1;
+      text-align: center;
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-size: 15px;
+      font-weight: 600;
+    }
+    @media (max-width: 480px) {
+      .action-grid { grid-template-columns: 1fr; }
+      .steps-grid { grid-template-columns: 1fr; }
+      .landing-hero h2 { font-size: 26px; }
+    }
   </style>
 </head>
 <body>
@@ -425,9 +500,60 @@
     <p>Find the perfect time to meet.</p>
   </div>
 
-  <!-- ROOM CREATION SCREEN (Landing Page) -->
-  <div id="tab-create" class="section active">
+  <!-- LANDING PAGE -->
+  <div id="screen-landing">
+    <div class="landing-hero">
+      <span class="landing-hero-icon">🗓️</span>
+      <h2>Find a time that works for everyone.</h2>
+      <p>Create a room, share the link, and let everyone mark when they're free. FindTime figures out the rest.</p>
+    </div>
+
+    <div class="card" style="padding: 0; overflow: hidden; margin-bottom: 1rem;">
+      <div style="padding: 1rem 1.5rem 0.75rem; border-bottom: 1px solid var(--color-border-tertiary);">
+        <p class="section-label" style="margin-bottom: 0;">How it works</p>
+      </div>
+      <div class="steps-grid">
+        <div class="step">
+          <span class="step-icon"><i class="ti ti-home-plus" style="color:var(--color-accent)"></i></span>
+          <p class="step-title">Create a room</p>
+          <p class="step-desc">Pick a meeting type, duration, and your name</p>
+        </div>
+        <div class="step">
+          <span class="step-icon"><i class="ti ti-share" style="color:var(--color-accent)"></i></span>
+          <p class="step-title">Share the link</p>
+          <p class="step-desc">Invite anyone with a unique room code or URL</p>
+        </div>
+        <div class="step">
+          <span class="step-icon"><i class="ti ti-circle-check" style="color:var(--color-accent)"></i></span>
+          <p class="step-title">Find the time</p>
+          <p class="step-desc">Everyone marks availability and the best slots appear instantly</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="action-grid">
+      <div class="action-card">
+        <div class="action-card-icon">✨</div>
+        <h3>Create a room</h3>
+        <p>Set up a new scheduling session and invite your group.</p>
+        <button class="btn btn-primary btn-full" onclick="showCreationForm()">Get started →</button>
+      </div>
+      <div class="action-card">
+        <div class="action-card-icon">🚪</div>
+        <h3>Join a room</h3>
+        <p>Already have a room code? Jump straight in.</p>
+        <div class="code-join-row">
+          <input type="text" id="landing-code-input" placeholder="ABC123" maxlength="7" onkeydown="if(event.key==='Enter') joinFromLanding()" />
+          <button class="btn btn-primary" onclick="joinFromLanding()">→</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ROOM CREATION SCREEN -->
+  <div id="tab-create" class="section">
     <div class="card" style="padding: 2rem;">
+      <button onclick="showLanding()" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--color-text-secondary);padding:0;margin-bottom:20px;display:flex;align-items:center;gap:5px;"><i class="ti ti-arrow-left"></i> Back</button>
       <h2 style="font-size: 22px; font-weight: 700; margin: 0 0 6px; color: var(--color-text-primary); letter-spacing: -0.3px;">Create a room</h2>
       <p style="font-size: 14px; color: var(--color-text-secondary); margin: 0 0 28px; line-height: 1.5;">Set up your meeting and invite people to share their availability.</p>
 
@@ -561,7 +687,7 @@
         <div style="display:flex;gap:16px;margin-top:10px;padding:0 4px;flex-wrap:wrap;align-items:center">
           <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary)"><div style="width:12px;height:12px;border-radius:2px;background:#1D9E75"></div>Free</div>
           <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary)"><div style="width:12px;height:12px;border-radius:2px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary)"></div>Busy</div>
-          <span style="font-size:12px;color:var(--color-text-secondary);margin-left:auto">Click day name to fill 9–5 · drag to select</span>
+          <span style="font-size:12px;color:var(--color-text-secondary);margin-left:auto">Click day name to fill all day · drag to select</span>
         </div>
       </div>
       <button class="btn btn-full" onclick="showTab('results')" style="margin-top: 16px;">See best times →</button>
@@ -605,6 +731,30 @@
   let isDragging = false, dragValue = null;
   let refreshInterval = null;
   let resultsRefreshInterval = null;
+
+  function showCreationForm() {
+    document.getElementById('screen-landing').style.display = 'none';
+    document.getElementById('tab-create').classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function showLanding() {
+    document.getElementById('tab-create').classList.remove('active');
+    document.getElementById('screen-landing').style.display = '';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function joinFromLanding() {
+    const code = document.getElementById('landing-code-input').value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const input = document.getElementById('landing-code-input');
+    if (code.length !== 6) {
+      input.style.borderColor = '#E24B4A';
+      input.focus();
+      return;
+    }
+    input.style.borderColor = '';
+    window.location.href = `/room/${code}`;
+  }
 
   // Emoji picker functionality
   document.querySelectorAll('.emoji-btn').forEach(btn => {
@@ -678,6 +828,7 @@
   }
 
   function displayRoomUI() {
+    document.getElementById('screen-landing').style.display = 'none';
     document.getElementById('tab-create').classList.remove('active');
     document.getElementById('app-container').classList.remove('hidden');
 
@@ -853,9 +1004,9 @@
     grid.style.gridTemplateColumns = `repeat(${DAYS.length}, 1fr)`;
     let html = '';
     DAYS.forEach((d, di) => {
-      html += `<div class="day-header-wrap" onclick="fillDay(${id},${di},9,17)" title="Click to fill 9–5">
+      html += `<div class="day-header-wrap" onclick="fillDay(${id},${di},8,23)" title="Click to fill all day">
         <span class="day-label">${d}</span>
-        <span class="day-fill-btn">9–5</span>
+        <span class="day-fill-btn">All day</span>
       </div>`;
     });
     
