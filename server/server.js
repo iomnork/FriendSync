@@ -46,7 +46,7 @@ app.get("/api/rooms/:code", async (req, res) => {
     }
     const room = roomResult.rows[0];
     const participantsResult = await pool.query(
-      'SELECT id, name, created_at FROM participants WHERE room_id = $1 ORDER BY created_at',
+      'SELECT id, name, travel_buffer_minutes, created_at FROM participants WHERE room_id = $1 ORDER BY created_at',
       [room.id]
     );
     res.json({ ...room, participants: participantsResult.rows });
@@ -109,14 +109,19 @@ app.post("/api/availability", async (req, res) => {
   }
 });
 
-// Travel buffer placeholder (not yet persisted — needs DB column)
+// Save travel buffer for participant
 app.post("/api/participants/:id/travel-buffer", async (req, res) => {
   try {
+    const id = parseInt(req.params.id);
     const { travelBuffer } = req.body;
-    if (typeof travelBuffer !== 'number' || travelBuffer < 0 || travelBuffer > 120) {
-      return res.status(400).json({ error: 'Travel buffer must be a number between 0 and 120' });
+    if (!Number.isInteger(travelBuffer) || travelBuffer < 0 || travelBuffer > 120) {
+      return res.status(400).json({ error: 'Travel buffer must be an integer between 0 and 120' });
     }
-    res.json({ success: true, participantId: parseInt(req.params.id), travelBuffer, note: 'Not yet persisted' });
+    await pool.query(
+      'UPDATE participants SET travel_buffer_minutes = $1 WHERE id = $2',
+      [travelBuffer, id]
+    );
+    res.json({ success: true });
   } catch (error) {
     console.error('Error saving travel buffer:', error);
     res.status(500).json({ error: 'Failed to save travel buffer' });

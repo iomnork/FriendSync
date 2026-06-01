@@ -486,6 +486,10 @@
       font-size: 15px;
       font-weight: 600;
     }
+    /* ── Loading spinner ── */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin-icon { display: inline-block; animation: spin 0.8s linear infinite; font-size: 22px; color: var(--color-accent); margin-bottom: 8px; }
+
     @media (max-width: 480px) {
       .action-grid { grid-template-columns: 1fr; }
       .steps-grid { grid-template-columns: 1fr; }
@@ -590,7 +594,7 @@
         <input type="text" id="host-name-input" placeholder="e.g., Nick" style="width: 100%;" />
       </div>
 
-      <button class="btn btn-primary btn-full" onclick="createRoom()" style="padding: 10px;">Generate room →</button>
+      <button id="create-btn" class="btn btn-primary btn-full" onclick="createRoom()" style="padding: 10px;">Generate room →</button>
     </div>
   </div>
 
@@ -644,7 +648,7 @@
           <div class="or-divider">— or pick an alias —</div>
           <div class="alias-chips" id="alias-chips"></div>
           <div style="margin-top:1.5rem">
-            <button class="btn btn-primary" onclick="joinRoom()" style="min-width:160px">Join the room →</button>
+            <button id="join-btn" class="btn btn-primary" onclick="joinRoom()" style="min-width:160px">Join the room →</button>
           </div>
         </div>
       </div>
@@ -785,6 +789,10 @@
       return;
     }
 
+    const createBtn = document.getElementById('create-btn');
+    createBtn.textContent = 'Creating…';
+    createBtn.disabled = true;
+
     try {
       // Step 1: Create the room
       const res = await fetch('/api/rooms', {
@@ -824,6 +832,9 @@
     } catch (error) {
       console.error('Error creating room:', error);
       alert('Failed to create room');
+      const createBtn = document.getElementById('create-btn');
+      createBtn.textContent = 'Generate room →';
+      createBtn.disabled = false;
     }
   }
 
@@ -873,7 +884,11 @@
     const name = document.getElementById('join-name-input').value.trim();
     if (!name) { document.getElementById('join-name-input').style.borderColor='#E24B4A'; return; }
     document.getElementById('join-name-input').style.borderColor='';
-    
+
+    const joinBtn = document.getElementById('join-btn');
+    joinBtn.textContent = 'Joining…';
+    joinBtn.disabled = true;
+
     try {
       const joinRes = await fetch(`/api/rooms/${currentRoomCode}/join`, {
         method: 'POST',
@@ -899,6 +914,9 @@
     } catch (error) {
       console.error('Error joining room:', error);
       alert('Failed to join room');
+      const joinBtn = document.getElementById('join-btn');
+      joinBtn.textContent = 'Join the room →';
+      joinBtn.disabled = false;
     }
   }
 
@@ -1132,6 +1150,12 @@
 
   function updateTravelBuffer() {
     travelBuffer = parseInt(document.getElementById('travel-buffer').value);
+    if (!currentParticipantId) return;
+    fetch(`/api/participants/${currentParticipantId}/travel-buffer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ travelBuffer })
+    });
   }
 
   async function loadAllParticipantAvailability() {
@@ -1153,29 +1177,31 @@
 
   async function computeAndShow(autoRefresh = false) {
     if (!autoRefresh) showTab('results');
-    await loadAllParticipantAvailability();
-    
     const container = document.getElementById('results-container');
+
+    if (!autoRefresh) {
+      container.innerHTML = '<div class="empty-state"><i class="ti ti-loader-2 spin-icon"></i><br>Finding best times…</div>';
+    }
+
+    await loadAllParticipantAvailability();
+
     if (!participants.length) { container.innerHTML = '<div class="empty-state">No participants yet — join the room first!</div>'; return; }
-    
+
     const hasData = Object.keys(availability).length > 0;
     if (!hasData) { container.innerHTML = '<div class="empty-state">No availability entered yet. Mark some free slots first!</div>'; return; }
-    
+
     const total = participants.length;
+    const minSlots = currentRoomDuration / 30;
     let slots = [];
-    
+
     for (let di = 0; di < DAYS.length; di++) {
       for (let si = 0; si < TOTAL_SLOTS; si++) {
         let freeCount = 0;
-        for (let p of participants) {
-          const key = `${p.id}-${di}-${si}`;
-          if (availability[key]) freeCount++;
-        }
+        for (const p of participants) { if (availability[`${p.id}-${di}-${si}`]) freeCount++; }
         if (freeCount > 0) slots.push({ di, si, freeCount });
       }
     }
-    
-    const minSlots = (currentRoomDuration / 30);
+
     const merged = [];
     let i = 0;
     while (i < slots.length) {
@@ -1186,42 +1212,55 @@
         i++; run.push(slots[i]);
       }
       if (run.length >= minSlots) {
-        // Break the run into individual blocks of minSlots length
         for (let j = 0; j <= run.length - minSlots; j++) {
           const block = run.slice(j, j + minSlots);
-          const first = block[0], last = block[block.length-1];
-          const sH = START_HOUR + Math.floor(first.si/2), sM = first.si%2===0?'00':'30';
+          const first = block[0], last = block[block.length - 1];
+          const sH = START_HOUR + Math.floor(first.si / 2), sM = first.si % 2 === 0 ? '00' : '30';
           const eSlot = last.si + 1;
-          const eH = START_HOUR + Math.floor(eSlot/2), eM = eSlot%2===0?'00':'30';
-          const fmt = (h,m) => `${h%12||12}:${m}${h<12?'am':'pm'}`;
-          // Use minimum availability across this block
-          const minFreeInBlock = Math.min(...block.map(b => b.freeCount));
-          merged.push({ day: DAYS[first.di], time: `${fmt(sH,sM)} – ${fmt(eH,eM)}`, freeCount: minFreeInBlock, total, slots: minSlots, di: first.di, startSlot: first.si, endSlot: last.si + 1 });
+          const eH = START_HOUR + Math.floor(eSlot / 2), eM = eSlot % 2 === 0 ? '00' : '30';
+          const fmt = (h, m) => `${h % 12 || 12}:${m}${h < 12 ? 'am' : 'pm'}`;
+
+          // Count participants free for the block + their travel buffer on each side
+          let freeForBlock = 0;
+          for (const p of participants) {
+            const bufSlots = Math.ceil((p.travel_buffer_minutes || 0) / 30);
+            let canAttend = true;
+            for (let s = first.si - bufSlots; s <= last.si + bufSlots; s++) {
+              if (s < 0 || s >= TOTAL_SLOTS || !availability[`${p.id}-${first.di}-${s}`]) {
+                canAttend = false; break;
+              }
+            }
+            if (canAttend) freeForBlock++;
+          }
+
+          if (freeForBlock > 0) {
+            merged.push({ day: DAYS[first.di], time: `${fmt(sH, sM)} – ${fmt(eH, eM)}`, freeCount: freeForBlock, total, slots: minSlots, di: first.di, startSlot: first.si, endSlot: last.si + 1 });
+          }
         }
       }
       i++;
     }
-    
-    merged.sort((a,b) => b.freeCount - a.freeCount || b.slots - a.slots);
 
-    // Filter to non-overlapping blocks so one long run doesn't dominate the top 10 (Fix 11)
+    merged.sort((a, b) => b.freeCount - a.freeCount || b.slots - a.slots);
+
     const seen = [];
     for (const block of merged) {
       const overlaps = seen.some(r => r.di === block.di && block.startSlot < r.endSlot && block.endSlot > r.startSlot);
       if (!overlaps) seen.push(block);
     }
-    const top = seen.slice(0,10);
+    const top = seen.slice(0, 10);
+
     if (!top.length) { container.innerHTML = '<div class="empty-state">No overlapping slots found. Try adding more availability!</div>'; return; }
-    
-    container.innerHTML = top.map((r,i) => `
-      <div class="result-item${i===0?' best':''}">
-        <div class="result-rank">${i===0?'★':`${i+1}`}</div>
+
+    container.innerHTML = top.map((r, i) => `
+      <div class="result-item${i === 0 ? ' best' : ''}">
+        <div class="result-rank">${i === 0 ? '★' : `${i + 1}`}</div>
         <div class="result-day">${r.day}</div>
         <div class="result-time">${r.time}</div>
-        <div class="result-bar-wrap"><div class="result-bar" style="width:${Math.round(r.freeCount/r.total*100)}%"></div></div>
+        <div class="result-bar-wrap"><div class="result-bar" style="width:${Math.round(r.freeCount / r.total * 100)}%"></div></div>
         <div class="result-count">${r.freeCount}/${r.total}</div>
       </div>`).join('');
-    
+
     if (!autoRefresh) startResultsRefreshLoop();
   }
 
