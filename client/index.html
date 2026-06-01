@@ -169,6 +169,11 @@
         <p style="font-size: 12px; color: var(--color-text-secondary); margin: 8px 0 0;">30-min increments</p>
       </div>
 
+      <div style="margin-bottom: 20px;">
+        <label style="font-size: 13px; font-weight: 500; color: var(--color-text-primary); display: block; margin-bottom: 8px;">Your name</label>
+        <input type="text" id="host-name-input" placeholder="e.g., Nick" style="width: 100%;" />
+      </div>
+
       <button class="btn btn-primary btn-full" onclick="createRoom()" style="padding: 10px;">Generate room →</button>
     </div>
   </div>
@@ -203,8 +208,6 @@
           <button class="btn" onclick="showTab('join')">Preview join screen →</button>
         </div>
       </div>
-      <p class="section-label">Participants</p>
-      <div class="card"><div id="participant-list"><p style="font-size:14px;color:var(--color-text-secondary)">No one has joined yet.</p></div></div>
     </div>
 
     <!-- JOIN TAB (Guest Greeting) -->
@@ -276,7 +279,9 @@
 
     <!-- RESULTS TAB -->
     <div id="tab-results" class="section">
-      <p class="section-label">Best meeting slots</p>
+      <p class="section-label">Participants</p>
+      <div class="card" id="participant-list"><p style="font-size:14px;color:var(--color-text-secondary)">No one has joined yet.</p></div>
+      <p class="section-label" style="margin-top:1rem">Best meeting slots</p>
       <div class="card" id="results-container"><div class="empty-state">Enter availability first to see suggestions.</div></div>
     </div>
   </div>
@@ -288,6 +293,14 @@
   const AVAIL_COLORS = [['#E6F1FB','#0C447C'],['#E1F5EE','#0F6E56'],['#FAEEDA','#633806'],['#FAECE7','#993C1D'],['#EEEDFE','#3C3489'],['#EAF3DE','#3B6D11']];
   const START_HOUR = 8, END_HOUR = 23;
   const TOTAL_SLOTS = (END_HOUR - START_HOUR) * 2;
+
+  // localStorage helpers — persist host/guest identity across refreshes
+  function saveStoredRoom(code, data) {
+    try { localStorage.setItem(`findtime_${code}`, JSON.stringify(data)); } catch(e) {}
+  }
+  function getStoredRoom(code) {
+    try { return JSON.parse(localStorage.getItem(`findtime_${code}`)); } catch(e) { return null; }
+  }
 
   let currentRoomCode = null;
   let currentRoomName = null;
@@ -322,33 +335,51 @@
   });
 
   async function createRoom() {
-    const name = document.getElementById('room-name-input').value.trim();
+    const meetingName = document.getElementById('room-name-input').value.trim();
+    const hostName = document.getElementById('host-name-input').value.trim();
     const selectedEmoji = document.querySelector('.emoji-btn.selected')?.getAttribute('data-emoji');
     const duration = parseFloat(durationSlider.value) * 60;
 
-    if (!name || !selectedEmoji) {
-      alert('Please enter a room name and select an emoji');
+    if (!meetingName || !selectedEmoji || !hostName) {
+      alert('Please enter a meeting name, pick an emoji, and enter your name');
       return;
     }
 
     try {
+      // Step 1: Create the room
       const res = await fetch('/api/rooms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, emoji: selectedEmoji, durationMinutes: duration })
+        body: JSON.stringify({ name: meetingName, emoji: selectedEmoji, durationMinutes: duration })
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Server error');
       const room = await res.json();
-      
+
+      // Step 2: Host joins as a participant so they can mark their own availability
+      const joinRes = await fetch(`/api/rooms/${room.code}/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: hostName })
+      });
+      if (!joinRes.ok) throw new Error('Failed to join room as host');
+      const participant = await joinRes.json();
+
       currentRoomCode = room.code;
       currentRoomName = room.name;
       currentRoomEmoji = room.emoji;
       currentRoomDuration = room.duration_minutes;
+      currentParticipantId = participant.id;
       isHostView = true;
+      isGuestView = false;
+
+      // Persist so refreshing the page restores host view
+      saveStoredRoom(room.code, { isHost: true, participantId: participant.id, participantName: hostName });
 
       displayRoomUI();
-      document.getElementById('tab-btn-room').style.display = isHostView ? 'block' : 'none';
-      document.getElementById('tab-btn-join').style.display = isGuestView ? 'block' : 'none';
+      document.getElementById('tab-btn-room').style.display = 'block';
+      document.getElementById('tab-btn-join').style.display = 'none';
+      await loadRoom(room.code);
+      updatePersonSelect();
       startRefreshLoop();
     } catch (error) {
       console.error('Error creating room:', error);
@@ -417,6 +448,7 @@
 
       currentParticipantId = participant.id;
       isGuestView = true;
+      saveStoredRoom(currentRoomCode, { isHost: false, participantId: participant.id, participantName: name });
       await loadRoom(currentRoomCode);
       document.getElementById('tab-btn-room').style.display = 'none';
       document.getElementById('tab-btn-join').style.display = 'none';
@@ -451,13 +483,31 @@
     if (match) {
       const code = match[1];
       currentRoomCode = code;
-      isGuestView = true;
-      
+
+      // Check if this browser already has an identity for this room
+      const stored = getStoredRoom(code);
+      if (stored && stored.isHost) {
+        isHostView = true;
+        isGuestView = false;
+        currentParticipantId = stored.participantId;
+      } else if (stored && stored.participantId) {
+        isGuestView = true;
+        currentParticipantId = stored.participantId;
+      } else {
+        isGuestView = true; // Unknown visitor — show join screen
+      }
+
       loadRoom(code).then(() => {
         displayRoomUI();
         document.getElementById('tab-btn-room').style.display = isHostView ? 'block' : 'none';
-        document.getElementById('tab-btn-join').style.display = isGuestView ? 'block' : 'none';
-        showTab('join');
+        // Only show join tab if we don't already know who this person is
+        document.getElementById('tab-btn-join').style.display = (!isHostView && !currentParticipantId) ? 'block' : 'none';
+        if (currentParticipantId) {
+          updatePersonSelect();
+          showTab('avail');
+        } else {
+          showTab('join');
+        }
         startRefreshLoop();
       });
       return true;
