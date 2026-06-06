@@ -16,15 +16,18 @@ app.use(express.static(path.join(__dirname, "..", "client")));
 // Create a new room
 app.post("/api/rooms", async (req, res) => {
   try {
-    const { name, emoji, durationMinutes } = req.body;
+    const { name, emoji, durationMinutes, expiryDays } = req.body;
     if (!name || !emoji) {
       return res.status(400).json({ error: 'Room name and emoji are required' });
     }
+    const days = Number.isInteger(expiryDays) && expiryDays >= 1 && expiryDays <= 30 ? expiryDays : 1;
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     const code = Array.from({length: 6}, () => chars[Math.floor(Math.random() * chars.length)]).join('');
     const result = await pool.query(
-      'INSERT INTO rooms (code, name, emoji, duration_minutes) VALUES ($1, $2, $3, $4) RETURNING id, code, name, emoji, duration_minutes, created_at',
-      [code, name, emoji, durationMinutes || 60]
+      `INSERT INTO rooms (code, name, emoji, duration_minutes, expires_at)
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP + ($5 || ' days')::interval)
+       RETURNING id, code, name, emoji, duration_minutes, expires_at, created_at`,
+      [code, name, emoji, durationMinutes || 60, days]
     );
     res.json(result.rows[0]);
   } catch (error) {
@@ -38,7 +41,7 @@ app.get("/api/rooms/:code", async (req, res) => {
   try {
     const { code } = req.params;
     const roomResult = await pool.query(
-      'SELECT id, code, name, emoji, duration_minutes, created_at FROM rooms WHERE code = $1 AND expires_at > CURRENT_TIMESTAMP',
+      'SELECT id, code, name, emoji, duration_minutes, expires_at, created_at FROM rooms WHERE code = $1 AND expires_at > CURRENT_TIMESTAMP',
       [code]
     );
     if (roomResult.rows.length === 0) {

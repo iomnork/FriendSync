@@ -352,6 +352,7 @@
     }
     .slot-cell.hour-start { border-top: 1px solid var(--color-border-secondary); }
     .slot-cell.free { background: var(--color-accent); border-color: var(--color-accent-dark); }
+    .slot-cell.travel { background: rgba(239,159,39,0.45); border-color: rgba(191,120,20,0.5); }
     .slot-cell:hover { opacity: 0.7; }
 
     /* ── Quick fill ── */
@@ -590,6 +591,16 @@
       </div>
 
       <div style="margin-bottom: 20px;">
+        <label style="font-size: 13px; font-weight: 500; color: var(--color-text-primary); display: block; margin-bottom: 8px;">How long should the room stay open?</label>
+        <select id="expiry-select" style="width:100%">
+          <option value="1" selected>1 day</option>
+          <option value="3">3 days</option>
+          <option value="7">7 days</option>
+          <option value="14">14 days</option>
+        </select>
+      </div>
+
+      <div style="margin-bottom: 20px;">
         <label style="font-size: 13px; font-weight: 500; color: var(--color-text-primary); display: block; margin-bottom: 8px;">Your name</label>
         <input type="text" id="host-name-input" placeholder="e.g., Nick" style="width: 100%;" />
       </div>
@@ -619,6 +630,7 @@
           </div>
         </div>
         <div class="room-code" id="room-code-display">—</div>
+        <p id="room-expiry-display" style="font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;"></p>
         <div class="invite-box">
           <span class="invite-url" id="invite-url-display">Generate a room to get your link</span>
           <button class="copy-btn" onclick="copyLink()" id="copy-btn" style="display:none"><i class="ti ti-copy" aria-hidden="true"></i> Copy</button>
@@ -690,6 +702,7 @@
         </div>
         <div style="display:flex;gap:16px;margin-top:10px;padding:0 4px;flex-wrap:wrap;align-items:center">
           <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary)"><div style="width:12px;height:12px;border-radius:2px;background:#1D9E75"></div>Free</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary)"><div style="width:12px;height:12px;border-radius:2px;background:rgba(239,159,39,0.45);border:1px solid rgba(191,120,20,0.5)"></div>Travel time</div>
           <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary)"><div style="width:12px;height:12px;border-radius:2px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary)"></div>Busy</div>
           <span style="font-size:12px;color:var(--color-text-secondary);margin-left:auto">Click day name to fill all day · drag to select</span>
         </div>
@@ -726,6 +739,7 @@
   let currentRoomName = null;
   let currentRoomEmoji = null;
   let currentRoomDuration = 60;
+  let currentRoomExpiry = null;
   let currentParticipantId = null;
   let isHostView = false;
   let isGuestView = false;
@@ -783,6 +797,7 @@
     const hostName = document.getElementById('host-name-input').value.trim();
     const selectedEmoji = document.querySelector('.emoji-btn.selected')?.getAttribute('data-emoji');
     const duration = parseFloat(durationSlider.value) * 60;
+    const expiryDays = parseInt(document.getElementById('expiry-select').value);
 
     if (!meetingName || !selectedEmoji || !hostName) {
       alert('Please enter a meeting name, pick an emoji, and enter your name');
@@ -798,7 +813,7 @@
       const res = await fetch('/api/rooms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: meetingName, emoji: selectedEmoji, durationMinutes: duration })
+        body: JSON.stringify({ name: meetingName, emoji: selectedEmoji, durationMinutes: duration, expiryDays })
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Server error');
       const room = await res.json();
@@ -816,6 +831,7 @@
       currentRoomName = room.name;
       currentRoomEmoji = room.emoji;
       currentRoomDuration = room.duration_minutes;
+      currentRoomExpiry = room.expires_at;
       currentParticipantId = participant.id;
       isHostView = true;
       isGuestView = false;
@@ -848,6 +864,14 @@
     document.getElementById('room-name-display').textContent = currentRoomName;
     document.getElementById('room-emoji-display').textContent = currentRoomEmoji;
     document.getElementById('room-duration-display').textContent = `Looking for ${currentRoomDuration}-minute slots`;
+    if (currentRoomExpiry) {
+      const exp = new Date(currentRoomExpiry);
+      const now = new Date();
+      const hoursLeft = Math.round((exp - now) / 36e5);
+      const label = hoursLeft < 24 ? `${hoursLeft}h` : `${Math.ceil(hoursLeft/24)} day${Math.ceil(hoursLeft/24)!==1?'s':''}`;
+      const urgent = hoursLeft < 24;
+      document.getElementById('room-expiry-display').innerHTML = `<i class="ti ti-clock" style="vertical-align:-1px"></i> Room expires in <strong style="color:${urgent?'#E24B4A':'inherit'}">${label}</strong>`;
+    }
     
     const url = window.location.origin + '/room/' + currentRoomCode;
     document.getElementById('invite-url-display').textContent = url;
@@ -929,6 +953,7 @@
       currentRoomName = room.name;
       currentRoomEmoji = room.emoji;
       currentRoomDuration = room.duration_minutes;
+      currentRoomExpiry = room.expires_at;
       return room;
     } catch (error) {
       console.error('Error loading room:', error);
@@ -1007,6 +1032,27 @@
     renderAvailGrid();
   }
 
+  function getBufferCells(id, bufSlots) {
+    const s = new Set();
+    if (!bufSlots) return s;
+    for (let di = 0; di < DAYS.length; di++) {
+      let runStart = -1;
+      for (let si = 0; si <= TOTAL_SLOTS; si++) {
+        const free = si < TOTAL_SLOTS && !!availability[`${id}-${di}-${si}`];
+        if (free && runStart === -1) { runStart = si; }
+        else if (!free && runStart !== -1) {
+          const runEnd = si - 1;
+          for (let b = 0; b < bufSlots; b++) {
+            if (runStart + b <= runEnd) s.add(`${di}-${runStart + b}`);
+            if (runEnd - b >= runStart) s.add(`${di}-${runEnd - b}`);
+          }
+          runStart = -1;
+        }
+      }
+    }
+    return s;
+  }
+
   function renderAvailGrid() {
     const sel = document.getElementById('person-select');
     const id = parseInt(sel.value);
@@ -1019,6 +1065,10 @@
       return;
     }
     
+    const p = participants.find(p => p.id === id);
+    const bufSlots = Math.ceil(((id === currentParticipantId ? travelBuffer : (p?.travel_buffer_minutes || 0))) / 30);
+    const bufferCells = getBufferCells(id, bufSlots);
+
     grid.style.gridTemplateColumns = `repeat(${DAYS.length}, 1fr)`;
     let html = '';
     DAYS.forEach((d, di) => {
@@ -1027,13 +1077,14 @@
         <span class="day-fill-btn">All day</span>
       </div>`;
     });
-    
+
     for (let si = 0; si < TOTAL_SLOTS; si++) {
       const isHour = si % 2 === 0;
       DAYS.forEach((d, di) => {
         const key = `${id}-${di}-${si}`;
         const free = availability[key] || false;
-        html += `<div class="slot-cell${free?' free':''}${isHour?' hour-start':''}"
+        const isTravel = free && bufferCells.has(`${di}-${si}`);
+        html += `<div class="slot-cell${isTravel?' travel':free?' free':''}${isHour?' hour-start':''}"
           data-id="${id}" data-di="${di}" data-si="${si}"
           onmousedown="startDrag(event,${id},${di},${si})"
           onmouseover="continueDrag(event,${id},${di},${si})"
