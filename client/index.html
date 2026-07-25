@@ -520,7 +520,14 @@
     .field-hint { font-size: 12px; color: var(--color-text-secondary); margin-top: 6px; line-height: 1.5; }
 
     /* ── Selectable cells (shared by all grid types) ── */
-    .sel { cursor: pointer; user-select: none; touch-action: none; }
+    /* pan-y keeps vertical page scrolling working on touch. Without it a tall
+       calendar or week list traps the finger: swiping to scroll selects dates
+       instead, and there is no way past the grid. Horizontal drag-select still
+       works, and taps still toggle. */
+    .sel { cursor: pointer; user-select: none; touch-action: pan-y; }
+    /* The hours grid is a bounded widget inside its own scroll container, so it
+       can safely own both axes for drag-select. */
+    .slot-cell.sel { touch-action: none; }
 
     /* ── Day / calendar grid ── */
     .cal-month { margin-bottom: 18px; }
@@ -788,6 +795,7 @@
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
         <label style="font-size:14px;color:var(--color-text-secondary)">Editing as:</label>
         <select id="person-select" onchange="renderAvailGrid()"></select>
+        <button id="forget-me-btn" onclick="forgetMe()" style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--color-text-secondary);text-decoration:underline;padding:0;">Not you?</button>
       </div>
 
       <div id="travel-buffer-wrap" style="margin-bottom:16px;padding:14px 16px;background:var(--color-background-secondary);border-radius:var(--border-radius-md);border:1px solid var(--color-border-tertiary);">
@@ -1024,6 +1032,11 @@
         .map(n => `<option value="${n}"${n === (selectedGrain === 'days' ? 7 : 1) ? ' selected' : ''}>${n} ${d.unit}${n > 1 ? 's' : ''}</option>`)
         .join('');
     }
+
+    // The room has to outlive the planning horizon. A holiday being planned a
+    // year out defaulting to a 7-day room would expire before anyone replied.
+    document.getElementById('expiry-select').value =
+      ({ hours: '7', days: '30', weeks: '90', months: '365' })[selectedGrain];
   }
 
   document.querySelectorAll('.emoji-btn').forEach(btn => {
@@ -1326,6 +1339,9 @@
   // ══════════════════════════════════════════════════════════════════════════
   function updatePersonSelect() {
     const sel = document.getElementById('person-select');
+    // Hosts keep their role in localStorage; offering "Not you?" would let them
+    // discard host view by accident.
+    document.getElementById('forget-me-btn').style.display = isHostView ? 'none' : '';
     if (!isHostView) {
       const me = participants.find(p => p.id === currentParticipantId);
       sel.innerHTML = `<option value="${currentParticipantId}">${esc(me?.name || 'You')}</option>`;
@@ -1337,6 +1353,16 @@
       if (currentParticipantId) sel.value = String(currentParticipantId);
     }
     renderAvailGrid();
+  }
+
+  // Escape hatch: joining stores your identity and hides the Join tab, so a
+  // mistyped name would otherwise be permanent. This forgets the stored
+  // identity locally and returns to the join screen. It does not delete the
+  // old participant — the host can see and ignore it.
+  function forgetMe() {
+    if (!confirm('Forget your saved name on this device and rejoin as someone else?\n\nAvailability you already marked stays under the old name.')) return;
+    try { localStorage.removeItem(`findtime_${currentRoomCode}`); } catch (e) {}
+    window.location.reload();
   }
 
   function activeParticipantId() {
