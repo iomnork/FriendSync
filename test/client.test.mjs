@@ -322,11 +322,34 @@ section('Availability heatmap');
 
   eq('heat: nobody free -> no tint', T.heat(0, 1), '');
   eq('heat: my own slot ignores me', T.heat(7, 1), '');
+  // Scale: 2% opacity per 10% of others, capped at 20%.
   const a1 = alphaOf(T.heat(5, 1)), a2 = alphaOf(T.heat(3, 1));
-  eq('heat: 1-of-2 produces a tint', a1 > 0, true);
-  eq('heat: 2-of-2 is stronger than 1-of-2', a2 > a1, true);
-  eq('heat: full agreement caps at 0.70', a2, 0.70);
+  eq('heat: 1-of-2 others -> 10%', a1, 0.10);
+  eq('heat: 2-of-2 others -> 20%', a2, 0.20);
+  eq('heat: never exceeds 20%', a2 <= 0.20, true);
   eq('heat: tooltip counts others', /title="1 of 2 others free"/.test(T.heat(5, 1)), true);
+
+  // Quantisation and the floor, across group sizes.
+  {
+    const people = n => [{ id: 1, name: 'Me' }, ...Array.from({ length: n }, (_, k) => ({ id: k + 2, name: 'P' + k }))];
+    const freeFor = n => Object.fromEntries(Array.from({ length: n }, (_, k) => [`${k + 2}-0`, true]));
+
+    T.setPeople(people(10), 1); T.setAvailability(freeFor(5));
+    eq('heat: 5 of 10 others -> 10%', alphaOf(T.heat(0, 1)), 0.10);
+
+    T.setPeople(people(10), 1); T.setAvailability(freeFor(10));
+    eq('heat: 10 of 10 others -> 20%', alphaOf(T.heat(0, 1)), 0.20);
+
+    T.setPeople(people(10), 1); T.setAvailability(freeFor(1));
+    eq('heat: 1 of 10 others -> 2%', alphaOf(T.heat(0, 1)), 0.02);
+
+    // A lone voice in a big group would round to zero; floored so it still shows.
+    T.setPeople(people(40), 1); T.setAvailability(freeFor(1));
+    eq('heat: 1 of 40 others floors at 2%', alphaOf(T.heat(0, 1)), 0.02);
+  }
+
+  T.setPeople([{ id:1, name:'Me' }, { id:2, name:'B' }, { id:3, name:'C' }], 1);
+  T.setAvailability({ '2-3': true, '3-3': true, '2-5': true, '1-7': true });
 
   byId.get('person-select').value = '1';
   T.setHostView(false);
