@@ -1,6 +1,12 @@
 const express = require("express");
 const path = require("path");
-const { Pool } = require("pg");
+const { Pool, types } = require("pg");
+
+// Return DATE (oid 1082) as a plain 'YYYY-MM-DD' string. By default pg parses
+// it into a JS Date at local midnight, so under BST a range_start of
+// 2027-06-01 serialises to "2027-05-31T23:00:00Z" and the client renders the
+// whole calendar a day early. A DATE has no timezone; don't give it one.
+types.setTypeParser(1082, v => v);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
