@@ -6,10 +6,15 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // On the Pi there is no DATABASE_URL: connect over the local Unix socket using
-// peer auth, so no password or SSL config is needed anywhere.
+// peer auth, so no password or SSL config is needed anywhere. `host` must be
+// the socket DIRECTORY — pg treats a leading "/" as a socket path, whereas the
+// default ("localhost") would open a TCP connection and be rejected by scram.
 const pool = process.env.DATABASE_URL
   ? new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } })
-  : new Pool({ database: process.env.PGDATABASE || 'findtime' });
+  : new Pool({
+      host: process.env.PGHOST || '/var/run/postgresql',
+      database: process.env.PGDATABASE || 'findtime'
+    });
 
 app.use(express.json({ limit: '256kb' }));
 app.use(express.static(path.join(__dirname, "..", "client")));

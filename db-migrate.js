@@ -10,10 +10,16 @@
 
 const { Pool } = require('pg');
 
-// No DATABASE_URL => local socket, peer auth, no password, no SSL.
+// No DATABASE_URL => local Unix socket, peer auth, no password, no SSL.
+// `host` must be the socket DIRECTORY: pg treats a leading "/" as a socket
+// path, whereas the default ("localhost") would open a TCP connection and be
+// rejected by scram auth.
 const pool = process.env.DATABASE_URL
   ? new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } })
-  : new Pool({ database: process.env.PGDATABASE || 'findtime' });
+  : new Pool({
+      host: process.env.PGHOST || '/var/run/postgresql',
+      database: process.env.PGDATABASE || 'findtime'
+    });
 
 const RESET = process.argv.includes('--reset');
 
