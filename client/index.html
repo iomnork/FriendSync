@@ -864,6 +864,7 @@
   // Drag state
   let isDragging = false, dragValue = null;
   let pendingSlots = new Map();    // slotIndex -> bool, flushed on pointerup
+  let savesInFlight = 0;           // blocks the poll from clobbering unsaved edits
 
   // Escape anything user-controlled before it goes into innerHTML. Participant
   // names are attacker-chosen (anyone with the room link can pick one), so
@@ -1417,17 +1418,50 @@
    * slots you have not picked — your own choices stay solid green, so the two
    * signals never compete for the same cell.
    */
-  function heat(i, myId) {
+  function heatOf(i, myId) {
     const others = participants.filter(p => p.id !== myId);
-    if (!others.length) return '';
+    if (!others.length) return null;
     const n = others.reduce((c, p) => c + (isFree(p.id, i) ? 1 : 0), 0);
-    if (!n) return '';
+    if (!n) return null;
     // 2% opacity per 10% of others, so full agreement tops out at 20%. Kept
     // deliberately faint: this is ambient context, and anything stronger reads
     // as a selection and competes with the solid green of your own picks.
     // Floored at 2% so a lone voice in a large group still registers.
-    const alpha = Math.max(0.02, Math.round((n / others.length) * 10) * 0.02).toFixed(2);
-    return ` style="background:rgba(29,158,117,${alpha})" title="${n} of ${others.length} other${others.length > 1 ? 's' : ''} free"`;
+    const alpha = Math.max(0.02, Math.round((n / others.length) * 10) * 0.02);
+    return { alpha, n, total: others.length };
+  }
+
+  const heatTitle = h => `${h.n} of ${h.total} other${h.total > 1 ? 's' : ''} free`;
+
+  // Markup form, used when building a grid from scratch.
+  function heat(i, myId) {
+    const h = heatOf(i, myId);
+    return h ? ` style="background:rgba(29,158,117,${h.alpha.toFixed(2)})" title="${heatTitle(h)}"` : '';
+  }
+
+  // Apply (or clear) the tint on one existing cell. The tint is an inline
+  // style, which outranks the .free class rule — so a selected cell MUST have
+  // it removed or your own pick stays looking like someone else's.
+  function paintCell(el, i, myId) {
+    const h = isFree(myId, i) ? null : heatOf(i, myId);
+    if (h) {
+      el.style.background = `rgba(29,158,117,${h.alpha.toFixed(2)})`;
+      el.title = heatTitle(h);
+    } else {
+      el.style.background = '';
+      el.removeAttribute('title');
+    }
+  }
+
+  // Repaint every cell in place. Far cheaper than rebuilding the grid, and it
+  // keeps scroll position and does not fight an in-progress gesture.
+  function paintHeat() {
+    const id = activeParticipantId();
+    if (!id) return;
+    document.querySelectorAll('#grid-mount .sel').forEach(el => {
+      const i = parseInt(el.dataset.slot, 10);
+      if (!Number.isNaN(i)) paintCell(el, i, id);
+    });
   }
 
   // Slots consumed by travel buffer (hours mode only): the outermost `buf`
@@ -1550,7 +1584,12 @@
     if (val) availability[key] = true; else delete availability[key];
     pendingSlots.set(i, val);
     const el = document.querySelector(`[data-slot="${i}"]`);
-    if (el) el.classList.toggle('free', val);
+    if (el) {
+      el.classList.toggle('free', val);
+      // Selecting must strip the inline heat tint (it would otherwise outrank
+      // .free); deselecting must put it back.
+      paintCell(el, i, id);
+    }
   }
 
   document.addEventListener('pointerdown', e => {
@@ -1586,13 +1625,18 @@
   // re-renders when something actually changed, and never mid-gesture or with
   // unsaved edits queued — loadAllAvailability replaces each participant's
   // slice wholesale and would otherwise clobber local state.
-  let lastHeatSig = '';
   async function refreshHeatmap() {
-    if (isDragging || pendingSlots.size) return;
+    // Your own edits are authoritative until saved. loadAllAvailability replaces
+    // each participant's slice wholesale, so polling mid-gesture — or while a
+    // save is still in flight — would briefly revert your clicks to stale
+    // server data. Checked again after the await, since you may have clicked
+    // while the request was outstanding.
+    if (!heatSafeToRefresh()) return;
     await loadAllAvailability();
-    const sig = Object.keys(availability).sort().join(',');
-    if (sig !== lastHeatSig) { lastHeatSig = sig; renderAvailGrid(); }
+    if (!heatSafeToRefresh()) return;
+    paintHeat();
   }
+  const heatSafeToRefresh = () => !isDragging && !pendingSlots.size && !savesInFlight;
 
   // One bulk request per gesture instead of one per cell.
   async function flushPending() {
@@ -1603,6 +1647,7 @@
 
     const pill = document.getElementById('save-pill');
     pill.classList.add('show');
+    savesInFlight++;
     try {
       await fetch('/api/availability/bulk', {
         method: 'POST',
@@ -1612,6 +1657,7 @@
     } catch (e) {
       console.error('Save failed:', e);
     } finally {
+      savesInFlight--;
       setTimeout(() => pill.classList.remove('show'), 400);
     }
   }

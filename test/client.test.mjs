@@ -13,7 +13,7 @@ globalThis.__T = {
   parseISO, toISO, addDays, addMonths, mondayOf, nextMonday,
   slotDate, slotSegment, windowLabel, durationSummary, findBestWindows,
   esc, renderParticipants, updatePersonSelect, computeAndShow,
-  heat, renderAvailGrid,
+  heat, heatOf, paintCell, renderAvailGrid, applySlot,
   setAvailability: a => { availability = a; },
   setRoom: r => { room = r; },
   setPeople: (p, meId) => { participants = p; currentParticipantId = meId; },
@@ -365,6 +365,46 @@ section('Availability heatmap');
   // Solo room: nothing to compare against, so no tint anywhere.
   T.setPeople([{ id:1, name:'Me' }], 1);
   eq('heat: solo room has no heat', T.heat(3, 1), '');
+}
+
+// The tint is an inline style, so it outranks the .free class rule. If
+// selecting a tinted cell does not strip it, your own pick keeps looking like
+// someone else's until the next poll rebuilds the grid — which read as a
+// multi-second lag before the click registered.
+section('Selecting clears the heat tint');
+{
+  const mkCell = () => ({
+    style: {}, _attrs: {},
+    classList: { _s: new Set(), add(c){this._s.add(c)}, remove(c){this._s.delete(c)},
+                 toggle(c,v){ v ? this._s.add(c) : this._s.delete(c) }, contains(c){return this._s.has(c)} },
+    removeAttribute(a){ delete this._attrs[a]; this.title = undefined; },
+  });
+
+  T.setRoom({ granularity:'days', range_start:'2027-06-01', slot_count:10, duration_slots:1 });
+  T.setPeople([{ id:1, name:'Me' }, { id:2, name:'B' }], 1);
+  T.setAvailability({ '2-3': true });   // other person free at slot 3, I am not
+
+  const cell = mkCell();
+
+  // Unselected + someone else free -> tinted.
+  T.paintCell(cell, 3, 1);
+  eq('tinted before selecting', /rgba\(29,158,117/.test(cell.style.background), true);
+  eq('tooltip present before selecting', typeof cell.title === 'string' && cell.title.length > 0, true);
+
+  // Now I select it: the inline tint must go, or .free cannot show through.
+  T.setAvailability({ '2-3': true, '1-3': true });
+  T.paintCell(cell, 3, 1);
+  eq('tint cleared once selected', cell.style.background, '');
+  eq('tooltip cleared once selected', cell.title, undefined);
+
+  // Deselecting restores the tint.
+  T.setAvailability({ '2-3': true });
+  T.paintCell(cell, 3, 1);
+  eq('tint restored after deselecting', /rgba\(29,158,117/.test(cell.style.background), true);
+
+  // A slot nobody else wants never gets a tint.
+  T.paintCell(cell, 9, 1);
+  eq('no tint where nobody is free', cell.style.background, '');
 }
 
 // ── Report ──────────────────────────────────────────────────────────────────
