@@ -2,9 +2,12 @@
 
 A browser-based group scheduling application that helps multiple people find the perfect time to meet by identifying overlapping availability windows.
 
-**Live URL:** https://friendsync-q4q0.onrender.com/  
+**Live URL:** _(offline — Render free tier expired June 2026; migrating to self-hosted Raspberry Pi)_  
 **GitHub Repo:** https://github.com/iomnork/FriendSync (private)  
-**Local Path:** `C:\Users\Nick\Documents\Programming\FriendSync\`
+**Local Path:** `C:\Users\Nick\Documents\Programming\Claude Dedicated\Findtime\`
+
+> ⚠️ `C:\Users\Nick\Documents\Programming\FriendSync\` is a **stale clone** from before the repo
+> was relocated. It is 6 commits behind and must not be edited. Work happens in the path above.
 
 ---
 

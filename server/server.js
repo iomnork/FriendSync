@@ -5,105 +5,178 @@ const { Pool } = require("pg");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://findtime_user:ElfjKRhYMA4two9OHd6PYiGPB8yqMGDs@dpg-d8bgic3eo5us73aolab0-a.frankfurt-postgres.render.com/findtime',
-  ssl: { rejectUnauthorized: false }
-});
+// On the Pi there is no DATABASE_URL: connect over the local Unix socket using
+// peer auth, so no password or SSL config is needed anywhere.
+const pool = process.env.DATABASE_URL
+  ? new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } })
+  : new Pool({ database: process.env.PGDATABASE || 'findtime' });
 
-app.use(express.json());
+app.use(express.json({ limit: '256kb' }));
 app.use(express.static(path.join(__dirname, "..", "client")));
 
-// Create a new room
+const GRANULARITIES = ['hours', 'days', 'weeks', 'months'];
+const ROOM_COLS = 'id, code, name, emoji, granularity, range_start, slot_count, duration_slots, expires_at, created_at';
+
+const isInt = (v, min, max) => Number.isInteger(v) && v >= min && v <= max;
+
+// Look up the room a participant belongs to — used to bound-check slot indices.
+async function roomForParticipant(participantId) {
+  const { rows } = await pool.query(
+    `SELECT r.id, r.slot_count
+       FROM participants p
+       JOIN rooms r ON r.id = p.room_id
+      WHERE p.id = $1 AND r.expires_at > CURRENT_TIMESTAMP`,
+    [participantId]
+  );
+  return rows[0] || null;
+}
+
+// ── Rooms ────────────────────────────────────────────────────────────────────
+
 app.post("/api/rooms", async (req, res) => {
   try {
-    const { name, emoji, durationMinutes, expiryDays } = req.body;
-    if (!name || !emoji) {
-      return res.status(400).json({ error: 'Room name and emoji are required' });
+    const { name, emoji, granularity, rangeStart, slotCount, durationSlots, expiryDays } = req.body;
+
+    if (!name || !String(name).trim()) return res.status(400).json({ error: 'Room name is required' });
+    if (!emoji) return res.status(400).json({ error: 'An emoji is required' });
+    if (!GRANULARITIES.includes(granularity)) {
+      return res.status(400).json({ error: `granularity must be one of: ${GRANULARITIES.join(', ')}` });
     }
-    const days = Number.isInteger(expiryDays) && expiryDays >= 1 && expiryDays <= 30 ? expiryDays : 1;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(rangeStart || ''))) {
+      return res.status(400).json({ error: 'rangeStart must be a YYYY-MM-DD date' });
+    }
+    if (!isInt(slotCount, 1, 2000)) return res.status(400).json({ error: 'slotCount must be 1-2000' });
+    if (!isInt(durationSlots, 1, slotCount)) {
+      return res.status(400).json({ error: 'durationSlots must be between 1 and slotCount' });
+    }
+
+    const days = isInt(expiryDays, 1, 365) ? expiryDays : 1;
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    const code = Array.from({length: 6}, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-    const result = await pool.query(
-      `INSERT INTO rooms (code, name, emoji, duration_minutes, expires_at)
-       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP + ($5 || ' days')::interval)
-       RETURNING id, code, name, emoji, duration_minutes, expires_at, created_at`,
-      [code, name, emoji, durationMinutes || 60, days]
-    );
-    res.json(result.rows[0]);
+
+    // Retry on the astronomically unlikely code collision rather than 500.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+      try {
+        const { rows } = await pool.query(
+          `INSERT INTO rooms (code, name, emoji, granularity, range_start, slot_count, duration_slots, expires_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7, CURRENT_TIMESTAMP + ($8 || ' days')::interval)
+           RETURNING ${ROOM_COLS}`,
+          [code, String(name).trim(), emoji, granularity, rangeStart, slotCount, durationSlots, days]
+        );
+        return res.json(rows[0]);
+      } catch (e) {
+        if (e.code !== '23505') throw e; // 23505 = unique_violation on code
+      }
+    }
+    res.status(500).json({ error: 'Could not allocate a unique room code' });
   } catch (error) {
     console.error('Error creating room:', error);
     res.status(500).json({ error: 'Failed to create room' });
   }
 });
 
-// Get room details (Fix 7: enforce expiry)
 app.get("/api/rooms/:code", async (req, res) => {
   try {
-    const { code } = req.params;
-    const roomResult = await pool.query(
-      'SELECT id, code, name, emoji, duration_minutes, expires_at, created_at FROM rooms WHERE code = $1 AND expires_at > CURRENT_TIMESTAMP',
-      [code]
+    const { rows } = await pool.query(
+      `SELECT ${ROOM_COLS} FROM rooms WHERE code = $1 AND expires_at > CURRENT_TIMESTAMP`,
+      [String(req.params.code).toUpperCase()]
     );
-    if (roomResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Room not found or has expired' });
-    }
-    const room = roomResult.rows[0];
-    const participantsResult = await pool.query(
+    if (!rows.length) return res.status(404).json({ error: 'Room not found or has expired' });
+
+    const room = rows[0];
+    const participants = await pool.query(
       'SELECT id, name, travel_buffer_minutes, created_at FROM participants WHERE room_id = $1 ORDER BY created_at',
       [room.id]
     );
-    res.json({ ...room, participants: participantsResult.rows });
+    res.json({ ...room, participants: participants.rows });
   } catch (error) {
     console.error('Error fetching room:', error);
     res.status(500).json({ error: 'Failed to fetch room' });
   }
 });
 
-// Join a room (Fix 7: enforce expiry)
+// ── Participants ─────────────────────────────────────────────────────────────
+
 app.post("/api/rooms/:code/join", async (req, res) => {
   try {
-    const { code } = req.params;
-    const { name } = req.body;
-    if (!name || typeof name !== 'string' || !name.trim()) {
-      return res.status(400).json({ error: 'Name is required' });
-    }
-    const roomResult = await pool.query(
+    const name = String(req.body.name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+    if (name.length > 255) return res.status(400).json({ error: 'Name is too long' });
+
+    const { rows } = await pool.query(
       'SELECT id FROM rooms WHERE code = $1 AND expires_at > CURRENT_TIMESTAMP',
-      [code]
+      [String(req.params.code).toUpperCase()]
     );
-    if (roomResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Room not found or has expired' });
-    }
-    const roomId = roomResult.rows[0].id;
-    const participantResult = await pool.query(
-      'INSERT INTO participants (room_id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING id, name, created_at',
-      [roomId, name.trim()]
+    if (!rows.length) return res.status(404).json({ error: 'Room not found or has expired' });
+
+    const inserted = await pool.query(
+      `INSERT INTO participants (room_id, name) VALUES ($1, $2)
+       ON CONFLICT (room_id, name) DO NOTHING
+       RETURNING id, name, travel_buffer_minutes, created_at`,
+      [rows[0].id, name]
     );
-    if (participantResult.rows.length === 0) {
-      return res.status(400).json({ error: 'That name is already taken in this room' });
-    }
-    res.json(participantResult.rows[0]);
+    if (!inserted.rows.length) return res.status(409).json({ error: 'That name is already taken in this room' });
+
+    res.json(inserted.rows[0]);
   } catch (error) {
     console.error('Error joining room:', error);
     res.status(500).json({ error: 'Failed to join room' });
   }
 });
 
-// Save availability (Fix 10: input validation)
+app.post("/api/participants/:id/travel-buffer", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { travelBuffer } = req.body;
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid participant id' });
+    if (!isInt(travelBuffer, 0, 120)) {
+      return res.status(400).json({ error: 'travelBuffer must be an integer between 0 and 120' });
+    }
+    const { rowCount } = await pool.query(
+      'UPDATE participants SET travel_buffer_minutes = $1 WHERE id = $2',
+      [travelBuffer, id]
+    );
+    if (!rowCount) return res.status(404).json({ error: 'Participant not found' });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error saving travel buffer:', error);
+    res.status(500).json({ error: 'Failed to save travel buffer' });
+  }
+});
+
+app.get("/api/participants/:id/availability", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid participant id' });
+    const { rows } = await pool.query(
+      'SELECT slot_index, is_available FROM availability WHERE participant_id = $1 AND is_available = TRUE',
+      [id]
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching availability:', error);
+    res.status(500).json({ error: 'Failed to fetch availability' });
+  }
+});
+
+// ── Availability ─────────────────────────────────────────────────────────────
+
 app.post("/api/availability", async (req, res) => {
   try {
-    const { participantId, day, timeSlot, isAvailable } = req.body;
-    if (
-      !Number.isInteger(participantId) ||
-      !Number.isInteger(day) || day < 0 || day > 6 ||
-      !Number.isInteger(timeSlot) || timeSlot < 0 || timeSlot > 29 ||
-      typeof isAvailable !== 'boolean'
-    ) {
-      return res.status(400).json({ error: 'Invalid availability data' });
+    const { participantId, slotIndex, isAvailable } = req.body;
+    if (!Number.isInteger(participantId)) return res.status(400).json({ error: 'Invalid participantId' });
+    if (typeof isAvailable !== 'boolean') return res.status(400).json({ error: 'isAvailable must be a boolean' });
+
+    const room = await roomForParticipant(participantId);
+    if (!room) return res.status(404).json({ error: 'Participant or room not found' });
+    if (!isInt(slotIndex, 0, room.slot_count - 1)) {
+      return res.status(400).json({ error: `slotIndex must be 0-${room.slot_count - 1}` });
     }
+
     await pool.query(
-      'INSERT INTO availability (participant_id, day, time_slot, is_available) VALUES ($1, $2, $3, $4) ON CONFLICT (participant_id, day, time_slot) DO UPDATE SET is_available = $4',
-      [participantId, day, timeSlot, isAvailable]
+      `INSERT INTO availability (participant_id, slot_index, is_available) VALUES ($1,$2,$3)
+       ON CONFLICT (participant_id, slot_index) DO UPDATE SET is_available = EXCLUDED.is_available`,
+      [participantId, slotIndex, isAvailable]
     );
     res.json({ success: true });
   } catch (error) {
@@ -112,41 +185,72 @@ app.post("/api/availability", async (req, res) => {
   }
 });
 
-// Save travel buffer for participant
-app.post("/api/participants/:id/travel-buffer", async (req, res) => {
+/**
+ * Bulk upsert — replaces the old pattern of firing one request per cell, which
+ * meant a single "all day" quick-fill sent 210 concurrent requests.
+ * Body: { participantId, slots: [{ slotIndex, isAvailable }, ...] }
+ */
+app.post("/api/availability/bulk", async (req, res) => {
+  const client = await pool.connect();
   try {
-    const id = parseInt(req.params.id);
-    const { travelBuffer } = req.body;
-    if (!Number.isInteger(travelBuffer) || travelBuffer < 0 || travelBuffer > 120) {
-      return res.status(400).json({ error: 'Travel buffer must be an integer between 0 and 120' });
+    const { participantId, slots } = req.body;
+    if (!Number.isInteger(participantId)) return res.status(400).json({ error: 'Invalid participantId' });
+    if (!Array.isArray(slots)) return res.status(400).json({ error: 'slots must be an array' });
+    if (slots.length > 2000) return res.status(400).json({ error: 'Too many slots in one request' });
+    if (!slots.length) return res.json({ success: true, updated: 0 });
+
+    const room = await roomForParticipant(participantId);
+    if (!room) return res.status(404).json({ error: 'Participant or room not found' });
+
+    for (const s of slots) {
+      if (!isInt(s?.slotIndex, 0, room.slot_count - 1) || typeof s?.isAvailable !== 'boolean') {
+        return res.status(400).json({ error: 'Every slot needs a valid slotIndex and boolean isAvailable' });
+      }
     }
-    await pool.query(
-      'UPDATE participants SET travel_buffer_minutes = $1 WHERE id = $2',
-      [travelBuffer, id]
+
+    // unnest() lets the whole batch go over as one statement.
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO availability (participant_id, slot_index, is_available)
+       SELECT $1, * FROM unnest($2::int[], $3::boolean[])
+       ON CONFLICT (participant_id, slot_index) DO UPDATE SET is_available = EXCLUDED.is_available`,
+      [participantId, slots.map(s => s.slotIndex), slots.map(s => s.isAvailable)]
     );
-    res.json({ success: true });
+    await client.query('COMMIT');
+
+    res.json({ success: true, updated: slots.length });
   } catch (error) {
-    console.error('Error saving travel buffer:', error);
-    res.status(500).json({ error: 'Failed to save travel buffer' });
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error bulk-saving availability:', error);
+    res.status(500).json({ error: 'Failed to save availability' });
+  } finally {
+    client.release();
   }
 });
 
-// Get availability for a participant
-app.get("/api/participants/:id/availability", async (req, res) => {
+// ── Housekeeping ─────────────────────────────────────────────────────────────
+
+app.get("/api/health", async (req, res) => {
   try {
-    const { id } = req.params;
-    const result = await pool.query(
-      'SELECT day, time_slot, is_available FROM availability WHERE participant_id = $1',
-      [id]
-    );
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Error fetching availability:', error);
-    res.status(500).json({ error: 'Failed to fetch availability' });
+    await pool.query('SELECT 1');
+    res.json({ ok: true, uptime: Math.round(process.uptime()) });
+  } catch {
+    res.status(503).json({ ok: false, error: 'Database unreachable' });
   }
 });
 
-// Serve SPA
+// Delete rooms past their expiry (and cascade to participants/availability).
+async function purgeExpiredRooms() {
+  try {
+    const { rowCount } = await pool.query('DELETE FROM rooms WHERE expires_at <= CURRENT_TIMESTAMP');
+    if (rowCount) console.log(`Purged ${rowCount} expired room(s)`);
+  } catch (e) {
+    console.error('Purge failed:', e.message);
+  }
+}
+setInterval(purgeExpiredRooms, 60 * 60 * 1000).unref();
+purgeExpiredRooms();
+
 app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, "..", "client", "index.html"));
 });
