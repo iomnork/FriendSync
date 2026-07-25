@@ -12,10 +12,11 @@ src += `
 globalThis.__T = {
   parseISO, toISO, addDays, addMonths, mondayOf, nextMonday,
   slotDate, slotSegment, windowLabel, durationSummary, findBestWindows,
-  esc, renderParticipants, updatePersonSelect,
+  esc, renderParticipants, updatePersonSelect, computeAndShow,
   setRoom: r => { room = r; },
   setPeople: (p, meId) => { participants = p; currentParticipantId = meId; },
   setHostView: v => { isHostView = v; },
+  resetAvailability: () => { availability = {}; },
   SLOTS_PER_DAY, HOURS_DAYS
 };`;
 
@@ -42,11 +43,17 @@ const ctx = {
   window: { location: { pathname: '/', origin: 'http://test' }, scrollTo(){}, getSelection: () => ({ removeAllRanges(){}, addRange(){} }), history: { replaceState(){} }, isSecureContext: false },
   localStorage: { getItem: () => null, setItem(){} },
   navigator: {},
-  fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }),
+  // Programmable via ctx.__fx: participantId -> [{ slot_index, is_available }]
+  fetch: async (url) => {
+    const m = String(url).match(/\/api\/participants\/(\d+)\/availability/);
+    if (m) return { ok: true, status: 200, json: async () => ctx.__fx[m[1]] || [] };
+    return { ok: true, status: 200, json: async () => ({}) };
+  },
   setInterval: () => 0, clearInterval(){}, setTimeout: () => 0,
   console,
 };
 ctx.globalThis = ctx;
+ctx.__fx = {};
 vm.createContext(ctx);
 vm.runInContext(src, ctx);
 const T = ctx.__T;
@@ -245,6 +252,59 @@ for (const payload of PAYLOADS) {
   T.updatePersonSelect();
   const gsel = byId.get('person-select').innerHTML;
   eq(`guest dropdown escapes ${payload.slice(0, 18)}`, /<img|<script|<svg/i.test(gsel), false);
+}
+
+// ── computeAndShow integration ──────────────────────────────────────────────
+// Unit-testing findBestWindows and windowLabel separately once let a
+// ReferenceError in the function that joins them ship undetected: the results
+// pane hung on "Finding best windows…" in every granularity. These drive the
+// whole render path so that class of bug fails here instead.
+section('computeAndShow end-to-end');
+
+const rows = (...idx) => idx.map(i => ({ slot_index: i, is_available: true }));
+
+for (const [name, rm, fx] of [
+  ['hours',  { granularity:'hours',  range_start:'2026-07-27', slot_count:210, duration_slots:2 },
+             { 1: rows(2,3,4,5), 2: rows(2,3,4,5) }],
+  ['days',   { granularity:'days',   range_start:'2027-06-01', slot_count:30,  duration_slots:3 },
+             { 1: rows(5,6,7,8), 2: rows(6,7,8,9) }],
+  ['weeks',  { granularity:'weeks',  range_start:'2026-12-28', slot_count:52,  duration_slots:2 },
+             { 1: rows(3,4,5),   2: rows(4,5,6) }],
+  ['months', { granularity:'months', range_start:'2027-01-01', slot_count:12,  duration_slots:1 },
+             { 1: rows(6,7),     2: rows(6,7) }],
+]) {
+  T.resetAvailability();
+  T.setRoom(rm);
+  T.setPeople([{ id:1, name:'A', travel_buffer_minutes:0 }, { id:2, name:'B', travel_buffer_minutes:0 }], 1);
+  ctx.__fx = fx;
+
+  let threw = null;
+  try { await T.computeAndShow(false); } catch (e) { threw = e.message; }
+  const html = byId.get('results-container').innerHTML;
+
+  eq(`${name}: no exception`, threw, null);
+  eq(`${name}: spinner cleared`, /Finding best windows/.test(html), false);
+  eq(`${name}: rendered a result row`, /result-item/.test(html), true);
+  eq(`${name}: label is populated`, /result-time">[^<]+</.test(html), true);
+  eq(`${name}: no literal undefined in output`, /undefined/.test(html), false);
+}
+
+// Empty-state paths must also clear the spinner.
+{
+  T.resetAvailability();
+  T.setRoom({ granularity:'days', range_start:'2027-06-01', slot_count:30, duration_slots:3 });
+  T.setPeople([{ id:1, name:'A', travel_buffer_minutes:0 }], 1);
+  ctx.__fx = { 1: [] };
+  await T.computeAndShow(false);
+  const html = byId.get('results-container').innerHTML;
+  eq('no availability: spinner cleared', /Finding best windows/.test(html), false);
+
+  ctx.__fx = { 1: rows(0, 1) };  // only 2 slots, needs 3
+  T.resetAvailability();
+  await T.computeAndShow(false);
+  const html2 = byId.get('results-container').innerHTML;
+  eq('no window fits: spinner cleared', /Finding best windows/.test(html2), false);
+  eq('no window fits: explains the duration', /3 consecutive days/.test(html2), true);
 }
 
 // ── Report ──────────────────────────────────────────────────────────────────

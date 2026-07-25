@@ -1733,6 +1733,7 @@
       return;
     }
 
+    const need = room.duration_slots;
     const picked = findBestWindows(room, participants, isFree);
 
     if (!picked.length) {
