@@ -1195,11 +1195,45 @@
     renderAliasChips();
   }
 
-  function copyLink() {
-    navigator.clipboard.writeText(document.getElementById('invite-url-display').textContent).catch(() => {});
+  // navigator.clipboard only exists in a secure context (HTTPS or localhost).
+  // Served over plain HTTP on the LAN it is undefined, so fall back to the
+  // legacy execCommand path, and to "select it yourself" if even that fails.
+  function legacyCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  async function copyLink() {
+    const url = document.getElementById('invite-url-display').textContent;
     const btn = document.getElementById('copy-btn');
-    btn.innerHTML = 'Copied!';
-    setTimeout(() => { btn.innerHTML = '<i class="ti ti-copy" aria-hidden="true"></i> Copy'; }, 1500);
+    let ok = false;
+
+    if (window.isSecureContext && navigator.clipboard?.writeText) {
+      try { await navigator.clipboard.writeText(url); ok = true; } catch (e) { ok = false; }
+    }
+    if (!ok) ok = legacyCopy(url);
+
+    if (ok) {
+      btn.innerHTML = '<i class="ti ti-check" aria-hidden="true"></i> Copied!';
+    } else {
+      // Last resort: highlight the URL so it can be copied by hand.
+      const el = document.getElementById('invite-url-display');
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      btn.innerHTML = 'Press Ctrl+C';
+    }
+    setTimeout(() => { btn.innerHTML = '<i class="ti ti-copy" aria-hidden="true"></i> Copy'; }, 2000);
   }
 
   function renderAliasChips() {
