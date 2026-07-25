@@ -327,7 +327,10 @@ section('Availability heatmap');
   eq('heat: 1-of-2 others -> 10%', a1, 0.10);
   eq('heat: 2-of-2 others -> 20%', a2, 0.20);
   eq('heat: never exceeds 20%', a2 <= 0.20, true);
-  eq('heat: tooltip counts others', /title="1 of 2 others free"/.test(T.heat(5, 1)), true);
+  // heat() emits style only; the tooltip is composed by paintCell, which also
+  // has to fold in any holiday name. Covered in the paintCell section below.
+  eq('heat: markup carries no title', /title=/.test(T.heat(5, 1)), false);
+  eq('heat: markup carries the tint', /style="background:rgba\(29,158,117,0\.10\)"/.test(T.heat(5, 1)), true);
 
   // Quantisation and the floor, across group sizes.
   {
@@ -374,7 +377,7 @@ section('Availability heatmap');
 section('Selecting clears the heat tint');
 {
   const mkCell = () => ({
-    style: {}, _attrs: {},
+    style: {}, _attrs: {}, dataset: {},
     classList: { _s: new Set(), add(c){this._s.add(c)}, remove(c){this._s.delete(c)},
                  toggle(c,v){ v ? this._s.add(c) : this._s.delete(c) }, contains(c){return this._s.has(c)} },
     removeAttribute(a){ delete this._attrs[a]; this.title = undefined; },
@@ -405,6 +408,20 @@ section('Selecting clears the heat tint');
   // A slot nobody else wants never gets a tint.
   T.paintCell(cell, 9, 1);
   eq('no tint where nobody is free', cell.style.background, '');
+
+  // A cell can be both a holiday and heat-tinted; the tooltip must carry both,
+  // and the holiday must survive a repaint that clears the tint.
+  const hol = mkCell();
+  hol.dataset.holiday = 'Tynwald Day';
+  T.setAvailability({ '2-3': true });
+  T.paintCell(hol, 3, 1);
+  eq('tooltip names the holiday', /Tynwald Day/.test(hol.title), true);
+  eq('tooltip also reports the heat count', /1 of 1 other free/.test(hol.title), true);
+
+  T.setAvailability({ '2-3': true, '1-3': true });   // I select it
+  T.paintCell(hol, 3, 1);
+  eq('holiday survives selection', hol.title, 'Tynwald Day');
+  eq('tint still cleared on a holiday cell', hol.style.background, '');
 }
 
 // ── Report ──────────────────────────────────────────────────────────────────

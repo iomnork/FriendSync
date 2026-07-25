@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS rooms (
   -- How many consecutive slots the meeting/stay needs.
   duration_slots  INTEGER NOT NULL DEFAULT 2 CHECK (duration_slots > 0),
 
+  -- Which public-holiday calendar to overlay. NULL = none.
+  region          VARCHAR(32),
+
   created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   expires_at      TIMESTAMP NOT NULL,
 
@@ -71,6 +74,9 @@ CREATE TABLE IF NOT EXISTS availability (
   is_available    BOOLEAN NOT NULL DEFAULT FALSE,
   PRIMARY KEY (participant_id, slot_index)
 );
+
+-- Additive migrations for databases created before a column existed.
+ALTER TABLE rooms ADD COLUMN IF NOT EXISTS region VARCHAR(32);
 
 CREATE INDEX IF NOT EXISTS idx_rooms_code        ON rooms(code);
 CREATE INDEX IF NOT EXISTS idx_rooms_expires     ON rooms(expires_at);

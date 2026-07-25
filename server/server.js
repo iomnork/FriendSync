@@ -25,8 +25,11 @@ const pool = process.env.DATABASE_URL
 app.use(express.json({ limit: '256kb' }));
 app.use(express.static(path.join(__dirname, "..", "client")));
 
+const holidays = require('./holidays');
+
 const GRANULARITIES = ['hours', 'days', 'weeks', 'months'];
-const ROOM_COLS = 'id, code, name, emoji, granularity, range_start, slot_count, duration_slots, expires_at, created_at';
+const VALID_REGIONS = [...holidays.REGIONS, 'all'];
+const ROOM_COLS = 'id, code, name, emoji, granularity, range_start, slot_count, duration_slots, region, expires_at, created_at';
 
 const isInt = (v, min, max) => Number.isInteger(v) && v >= min && v <= max;
 
@@ -46,7 +49,7 @@ async function roomForParticipant(participantId) {
 
 app.post("/api/rooms", async (req, res) => {
   try {
-    const { name, emoji, granularity, rangeStart, slotCount, durationSlots, expiryDays } = req.body;
+    const { name, emoji, granularity, rangeStart, slotCount, durationSlots, expiryDays, region } = req.body;
 
     if (!name || !String(name).trim()) return res.status(400).json({ error: 'Room name is required' });
     if (!emoji) return res.status(400).json({ error: 'An emoji is required' });
@@ -61,6 +64,10 @@ app.post("/api/rooms", async (req, res) => {
       return res.status(400).json({ error: 'durationSlots must be between 1 and slotCount' });
     }
 
+    if (region != null && !VALID_REGIONS.includes(region)) {
+      return res.status(400).json({ error: `region must be one of: ${VALID_REGIONS.join(', ')}` });
+    }
+
     const days = isInt(expiryDays, 1, 365) ? expiryDays : 1;
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -69,10 +76,10 @@ app.post("/api/rooms", async (req, res) => {
       const code = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
       try {
         const { rows } = await pool.query(
-          `INSERT INTO rooms (code, name, emoji, granularity, range_start, slot_count, duration_slots, expires_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7, CURRENT_TIMESTAMP + ($8 || ' days')::interval)
+          `INSERT INTO rooms (code, name, emoji, granularity, range_start, slot_count, duration_slots, region, expires_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8, CURRENT_TIMESTAMP + ($9 || ' days')::interval)
            RETURNING ${ROOM_COLS}`,
-          [code, String(name).trim(), emoji, granularity, rangeStart, slotCount, durationSlots, days]
+          [code, String(name).trim(), emoji, granularity, rangeStart, slotCount, durationSlots, region || null, days]
         );
         return res.json(rows[0]);
       } catch (e) {
@@ -239,6 +246,33 @@ app.post("/api/availability/bulk", async (req, res) => {
   }
 });
 
+// ── Holidays ─────────────────────────────────────────────────────────────────
+
+/**
+ * Public holidays for a region over a date range. The server owns the gov.uk
+ * fetch and caches it, so the user's browser never talks to a third party and
+ * the app keeps working if gov.uk is unreachable.
+ */
+app.get("/api/holidays", async (req, res) => {
+  try {
+    const { region, from, to } = req.query;
+    if (!VALID_REGIONS.includes(region)) {
+      return res.status(400).json({ error: `region must be one of: ${VALID_REGIONS.join(', ')}` });
+    }
+    const isDate = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
+    if (!isDate(from) || !isDate(to)) {
+      return res.status(400).json({ error: 'from and to must be YYYY-MM-DD dates' });
+    }
+    if (from > to) return res.status(400).json({ error: 'from must not be after to' });
+
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.json(await holidays.getHolidays(region, from, to));
+  } catch (error) {
+    console.error('Error fetching holidays:', error);
+    res.status(500).json({ error: 'Failed to fetch holidays' });
+  }
+});
+
 // ── Housekeeping ─────────────────────────────────────────────────────────────
 
 app.get("/api/health", async (req, res) => {
@@ -261,6 +295,10 @@ async function purgeExpiredRooms() {
 }
 setInterval(purgeExpiredRooms, 60 * 60 * 1000).unref();
 purgeExpiredRooms();
+
+// Warm the holiday cache at startup so the first room to need it isn't waiting
+// on gov.uk. Failures are non-fatal — holidays.js falls back to disk cache.
+holidays.refresh().catch(() => {});
 
 app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, "..", "client", "index.html"));

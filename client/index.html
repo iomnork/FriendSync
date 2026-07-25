@@ -570,6 +570,21 @@
     .month-name { font-size: 14px; font-weight: 700; color: var(--color-text-primary); }
     .month-year { font-size: 11px; color: var(--color-text-secondary); margin-top: 2px; }
 
+    /* ── Public holidays ──
+       An inset orange ring rather than a background wash: the background is
+       already carrying the availability heatmap, and two tints competing for
+       one cell reads as mud. The ring is a separate channel, so a date can be
+       both "everyone's free" and "bank holiday" without ambiguity. */
+    .sel.holiday { box-shadow: inset 0 0 0 1.5px rgba(224,138,30,0.65); }
+    .week-row.holiday, .month-tile.holiday { box-shadow: inset 0 0 0 1.5px rgba(224,138,30,0.5); }
+    .holiday-tag {
+      font-size: 11px; font-weight: 600; color: #B4700F;
+      background: rgba(224,138,30,0.12); border-radius: 4px;
+      padding: 2px 7px; white-space: nowrap;
+    }
+    @media (prefers-color-scheme: dark) { .holiday-tag { color: #E8A94E; } }
+    .day-header-wrap.holiday .day-label { color: #B4700F; }
+
     /* ── Save indicator ── */
     .save-pill {
       position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
@@ -724,6 +739,19 @@
       </div>
 
       <div class="field">
+        <label>Mark public holidays?</label>
+        <select id="region-select" style="width:100%">
+          <option value="">Don't show holidays</option>
+          <option value="all">All UK &amp; Isle of Man</option>
+          <option value="isle-of-man">Isle of Man</option>
+          <option value="england-and-wales">England &amp; Wales</option>
+          <option value="scotland">Scotland</option>
+          <option value="northern-ireland">Northern Ireland</option>
+        </select>
+        <p class="field-hint" id="region-hint"></p>
+      </div>
+
+      <div class="field">
         <label>Your name</label>
         <input type="text" id="host-name-input" placeholder="e.g., Nick" style="width:100%" />
       </div>
@@ -819,6 +847,7 @@
           <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary)">
             <div style="width:44px;height:12px;border-radius:2px;background:linear-gradient(to right, var(--color-background-secondary), rgba(29,158,117,0.02), rgba(29,158,117,0.20));border:1px solid var(--color-border-tertiary)"></div>Others free
           </div>
+          <div id="legend-holiday" style="display:none;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary)"><div style="width:12px;height:12px;border-radius:2px;box-shadow:inset 0 0 0 1.5px rgba(224,138,30,0.65)"></div>Public holiday</div>
           <div id="legend-travel" style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary)"><div style="width:12px;height:12px;border-radius:2px;background:rgba(239,159,39,0.45);border:1px solid rgba(191,120,20,0.5)"></div>Travel time</div>
           <span id="grid-hint" style="font-size:12px;color:var(--color-text-secondary);margin-left:auto"></span>
         </div>
@@ -898,6 +927,77 @@
   function nextMonday(from = new Date()) {
     const m = mondayOf(from);
     return m <= from ? addDays(m, 7) : m;
+  }
+
+  // ── Region / public holidays ───────────────────────────────────────────────
+  // Region is inferred from the browser's IANA timezone, which is computed
+  // locally and needs no permission prompt. Deliberately NOT IP geolocation:
+  // that would mean shipping every family member's IP to a third party for a
+  // cosmetic feature. The guess is only a default — the host can override it,
+  // and it is stored on the room, not against any individual.
+  function guessRegion() {
+    let tz = '';
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
+    // Browsers report Europe/London for the Isle of Man too, so these cannot be
+    // told apart. Defaulting to "all" is honest about that: it shows every
+    // relevant calendar rather than silently picking the wrong one.
+    if (tz === 'Europe/Isle_of_Man') return 'isle-of-man';
+    if (tz === 'Europe/Belfast') return 'northern-ireland';
+    if (tz === 'Europe/London' || tz === 'Europe/Guernsey' || tz === 'Europe/Jersey') return 'all';
+    return '';
+  }
+
+  let holidayMap = {};          // 'YYYY-MM-DD' -> [{ title, regions, approximate }]
+  let holidaysLoadedFor = null; // room code holidays were fetched for
+
+  // Last calendar day the grid covers, so we request exactly the range shown.
+  function rangeEndDate() {
+    const last = slotDate(room.slot_count - 1);
+    if (room.granularity === 'weeks') return addDays(last, 6);
+    if (room.granularity === 'months') return addDays(addMonths(last, 1), -1);
+    return last;
+  }
+
+  async function loadHolidays() {
+    holidayMap = {};
+    if (!room?.region) return;
+    try {
+      const q = new URLSearchParams({
+        region: room.region,
+        from: toISO(slotDate(0)),
+        to: toISO(rangeEndDate())
+      });
+      const res = await fetch(`/api/holidays?${q}`);
+      if (!res.ok) return;
+      for (const h of await res.json()) (holidayMap[h.date] ||= []).push(h);
+    } catch (e) {
+      // Purely decorative — never let this break the grid.
+      console.error('Could not load holidays:', e);
+    }
+  }
+
+  /** Holidays overlapping the calendar span of one slot. */
+  function holidaysForSlot(i) {
+    const start = slotDate(i);
+    let days = 1;
+    if (room.granularity === 'weeks') days = 7;
+    else if (room.granularity === 'months') days = (addDays(addMonths(start, 1), -1).getDate());
+    else if (room.granularity === 'hours') days = 1;
+
+    const out = [];
+    for (let d = 0; d < days; d++) {
+      const key = toISO(addDays(start, d));
+      if (holidayMap[key]) out.push(...holidayMap[key].map(h => ({ ...h, date: key })));
+    }
+    return out;
+  }
+
+  /** class + title attributes marking a slot as a holiday. */
+  function holidayAttrs(i) {
+    const hs = holidaysForSlot(i);
+    if (!hs.length) return { cls: '', attr: '' };
+    const names = hs.map(h => h.title + (h.approximate ? ' (provisional)' : '')).join(' · ');
+    return { cls: ' holiday', attr: ` data-holiday="${esc(names)}"` };
   }
 
   // ── Granularity model ──────────────────────────────────────────────────────
@@ -1040,6 +1140,19 @@
     // year out defaulting to a 7-day room would expire before anyone replied.
     document.getElementById('expiry-select').value =
       ({ hours: '7', days: '30', weeks: '90', months: '365' })[selectedGrain];
+
+    // Default the holiday calendar from the browser's timezone, once, so a
+    // deliberate change is never overwritten by switching granularity.
+    const regionSel = document.getElementById('region-select');
+    if (!regionSel.dataset.touched) {
+      regionSel.value = guessRegion();
+      regionSel.onchange = () => { regionSel.dataset.touched = '1'; };
+    }
+    let tz = '';
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
+    document.getElementById('region-hint').textContent = tz
+      ? `Detected from your timezone (${tz}). Change it if that's not right.`
+      : 'Could not detect your region — pick one if you want holidays marked.';
   }
 
   document.querySelectorAll('.emoji-btn').forEach(btn => {
@@ -1124,6 +1237,7 @@
           granularity: selectedGrain,
           rangeStart: toISO(start),
           slotCount, durationSlots,
+          region: document.getElementById('region-select').value || null,
           expiryDays: parseInt(document.getElementById('expiry-select').value, 10)
         })
       });
@@ -1174,6 +1288,13 @@
       currentRoomCode = code;
       const me = participants.find(p => p.id === currentParticipantId);
       if (me) travelBuffer = me.travel_buffer_minutes || 0;
+
+      // Holidays depend only on the room's region and date range, both fixed
+      // for its lifetime — so fetch once, not on every 4s poll.
+      if (room.region && holidaysLoadedFor !== room.code) {
+        holidaysLoadedFor = room.code;
+        await loadHolidays();
+      }
       return data;
     } catch (err) {
       console.error('Error loading room:', err);
@@ -1210,8 +1331,9 @@
     // Travel buffer only means anything at hour granularity.
     const showBuffer = room.granularity === 'hours';
     document.getElementById('travel-buffer-wrap').style.display = showBuffer ? '' : 'none';
-    document.getElementById('legend-travel').style.display = showBuffer ? '' : 'none';
+    document.getElementById('legend-travel').style.display = showBuffer ? 'flex' : 'none';
     if (showBuffer) document.getElementById('travel-buffer').value = String(travelBuffer);
+    document.getElementById('legend-holiday').style.display = room.region ? 'flex' : 'none';
 
     renderQuickFill();
     renderAliasChips();
@@ -1408,6 +1530,9 @@
     }
     const renderers = { hours: renderHoursGrid, days: renderDaysGrid, weeks: renderWeeksGrid, months: renderMonthsGrid };
     mount.innerHTML = renderers[room.granularity](id);
+    // Titles are composed here rather than in the markup, since a cell may need
+    // to report both a holiday and a heat count.
+    paintHeat();
   }
 
   const isFree = (id, i) => !!availability[`${id}-${i}`];
@@ -1433,10 +1558,11 @@
 
   const heatTitle = h => `${h.n} of ${h.total} other${h.total > 1 ? 's' : ''} free`;
 
-  // Markup form, used when building a grid from scratch.
+  // Markup form, used when building a grid from scratch. Style only — titles
+  // are composed by paintCell, which also has to fold in any holiday name.
   function heat(i, myId) {
     const h = heatOf(i, myId);
-    return h ? ` style="background:rgba(29,158,117,${h.alpha.toFixed(2)})" title="${heatTitle(h)}"` : '';
+    return h ? ` style="background:rgba(29,158,117,${h.alpha.toFixed(2)})"` : '';
   }
 
   // Apply (or clear) the tint on one existing cell. The tint is an inline
@@ -1444,13 +1570,15 @@
   // it removed or your own pick stays looking like someone else's.
   function paintCell(el, i, myId) {
     const h = isFree(myId, i) ? null : heatOf(i, myId);
-    if (h) {
-      el.style.background = `rgba(29,158,117,${h.alpha.toFixed(2)})`;
-      el.title = heatTitle(h);
-    } else {
-      el.style.background = '';
-      el.removeAttribute('title');
-    }
+    el.style.background = h ? `rgba(29,158,117,${h.alpha.toFixed(2)})` : '';
+
+    // One tooltip, two possible sources. Holiday first: it is the more
+    // surprising fact about a date.
+    const parts = [];
+    if (el.dataset.holiday) parts.push(el.dataset.holiday);
+    if (h) parts.push(heatTitle(h));
+    if (parts.length) el.title = parts.join(' · ');
+    else el.removeAttribute('title');
   }
 
   // Repaint every cell in place. Far cheaper than rebuilding the grid, and it
@@ -1496,7 +1624,11 @@
     let head = '';
     for (let d = 0; d < HOURS_DAYS; d++) {
       const date = addDays(start, d);
-      head += `<div class="day-header-wrap" onclick="fillDay(${d})" title="Click to fill this day">
+      // A bank holiday covers the whole column, so it belongs on the header —
+      // ringing all 30 cells beneath it would drown out everything else.
+      const hs = holidayMap[toISO(date)] || [];
+      const names = hs.map(h => h.title + (h.approximate ? ' (provisional)' : '')).join(' · ');
+      head += `<div class="day-header-wrap${hs.length ? ' holiday' : ''}" onclick="fillDay(${d})" title="${hs.length ? esc(names) : 'Click to fill this day'}">
         <span class="day-label">${DOW[d]}</span>
         <span class="day-fill-btn">${date.getDate()} ${MONTHS_SHORT[date.getMonth()]}</span>
       </div>`;
@@ -1546,7 +1678,8 @@
         open = true;
       }
       const mine = isFree(id, i);
-      html += `<div class="cal-cell sel${mine ? ' free' : ''}" data-slot="${i}"${mine ? '' : heat(i, id)}>${d.getDate()}</div>`;
+      const hol = holidayAttrs(i);
+      html += `<div class="cal-cell sel${mine ? ' free' : ''}${hol.cls}" data-slot="${i}"${hol.attr}${mine ? '' : heat(i, id)}>${d.getDate()}</div>`;
     }
     return html + (open ? '</div></div>' : '');
   }
@@ -1556,8 +1689,15 @@
     for (let i = 0; i < room.slot_count; i++) {
       const d = slotDate(i), end = addDays(d, 6);
       const mine = isFree(id, i);
-      html += `<div class="week-row sel${mine ? ' free' : ''}" data-slot="${i}"${mine ? '' : heat(i, id)}>
+      const hol = holidayAttrs(i);
+      // A week row has room for the actual name, which beats a tooltip.
+      const hs = holidaysForSlot(i);
+      const tag = hs.length
+        ? `<span class="holiday-tag">${esc(hs.map(h => h.title + (h.approximate ? '*' : '')).join(', '))}</span>`
+        : '';
+      html += `<div class="week-row sel${mine ? ' free' : ''}${hol.cls}" data-slot="${i}"${hol.attr}${mine ? '' : heat(i, id)}>
         <span class="week-label">w/c ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}</span>
+        ${tag}
         <span class="week-sub">${d.getDate()} ${MONTHS_SHORT[d.getMonth()]} – ${end.getDate()} ${MONTHS_SHORT[end.getMonth()]}</span>
       </div>`;
     }
@@ -1569,9 +1709,12 @@
     for (let i = 0; i < room.slot_count; i++) {
       const d = slotDate(i);
       const mine = isFree(id, i);
-      html += `<div class="month-tile sel${mine ? ' free' : ''}" data-slot="${i}"${mine ? '' : heat(i, id)}>
+      const hol = holidayAttrs(i);
+      const n = holidaysForSlot(i).length;
+      html += `<div class="month-tile sel${mine ? ' free' : ''}${hol.cls}" data-slot="${i}"${hol.attr}${mine ? '' : heat(i, id)}>
         <div class="month-name">${MONTHS_SHORT[d.getMonth()]}</div>
         <div class="month-year">${d.getFullYear()}</div>
+        ${n ? `<div class="month-year" style="color:#B4700F;font-weight:600">${n} holiday${n > 1 ? 's' : ''}</div>` : ''}
       </div>`;
     }
     return html + '</div>';
