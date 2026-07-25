@@ -1,0 +1,26 @@
+[Unit]
+Description=FindTime scheduling app
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=nickspi
+WorkingDirectory=/home/nickspi/findtime
+ExecStart=/usr/bin/node /home/nickspi/findtime/server/server.js
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+Environment=PORT=3000
+# No DATABASE_URL: the app falls back to the local Unix socket and peer auth,
+# so there is no password to store here or anywhere else.
+
+# Light hardening — the app only needs to read its own directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/nickspi/findtime
+
+[Install]
+WantedBy=multi-user.target
