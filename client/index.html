@@ -815,9 +815,11 @@
       <div class="card" id="avail-card" style="padding:1rem 0.75rem">
         <div id="grid-mount"></div>
         <div style="display:flex;gap:16px;margin-top:12px;padding:0 4px;flex-wrap:wrap;align-items:center">
-          <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary)"><div style="width:12px;height:12px;border-radius:2px;background:#1D9E75"></div>Free</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary)"><div style="width:12px;height:12px;border-radius:2px;background:#1D9E75"></div>You're free</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary)">
+            <div style="width:44px;height:12px;border-radius:2px;background:linear-gradient(to right, var(--color-background-secondary), rgba(29,158,117,0.16), rgba(29,158,117,0.70));border:1px solid var(--color-border-tertiary)"></div>Others free
+          </div>
           <div id="legend-travel" style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary)"><div style="width:12px;height:12px;border-radius:2px;background:rgba(239,159,39,0.45);border:1px solid rgba(191,120,20,0.5)"></div>Travel time</div>
-          <div style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-text-secondary)"><div style="width:12px;height:12px;border-radius:2px;background:var(--color-background-secondary);border:1px solid var(--color-border-tertiary)"></div>Busy</div>
           <span id="grid-hint" style="font-size:12px;color:var(--color-text-secondary);margin-left:auto"></span>
         </div>
       </div>
@@ -1409,6 +1411,21 @@
 
   const isFree = (id, i) => !!availability[`${id}-${i}`];
 
+  /**
+   * Grey→green tint showing how many OTHER people are free for a slot, so you
+   * can see consensus forming while marking your own time. Only applied to
+   * slots you have not picked — your own choices stay solid green, so the two
+   * signals never compete for the same cell.
+   */
+  function heat(i, myId) {
+    const others = participants.filter(p => p.id !== myId);
+    if (!others.length) return '';
+    const n = others.reduce((c, p) => c + (isFree(p.id, i) ? 1 : 0), 0);
+    if (!n) return '';
+    const alpha = (0.16 + 0.54 * (n / others.length)).toFixed(2);
+    return ` style="background:rgba(29,158,117,${alpha})" title="${n} of ${others.length} other${others.length > 1 ? 's' : ''} free"`;
+  }
+
   // Slots consumed by travel buffer (hours mode only): the outermost `buf`
   // slots at each edge of a contiguous free block.
   function travelCells(id) {
@@ -1452,8 +1469,9 @@
       const hourStart = s % 2 === 0;
       for (let d = 0; d < HOURS_DAYS; d++) {
         const i = d * SLOTS_PER_DAY + s;
-        const cls = travel.has(i) ? ' travel' : (isFree(id, i) ? ' free' : '');
-        cells += `<div class="slot-cell sel${cls}${hourStart ? ' hour-start' : ''}" data-slot="${i}"></div>`;
+        const mine = isFree(id, i);
+        const cls = travel.has(i) ? ' travel' : (mine ? ' free' : '');
+        cells += `<div class="slot-cell sel${cls}${hourStart ? ' hour-start' : ''}" data-slot="${i}"${mine ? '' : heat(i, id)}></div>`;
       }
     }
 
@@ -1489,7 +1507,8 @@
         html += '<div class="cal-cell blank"></div>'.repeat((d.getDay() + 6) % 7);
         open = true;
       }
-      html += `<div class="cal-cell sel${isFree(id, i) ? ' free' : ''}" data-slot="${i}">${d.getDate()}</div>`;
+      const mine = isFree(id, i);
+      html += `<div class="cal-cell sel${mine ? ' free' : ''}" data-slot="${i}"${mine ? '' : heat(i, id)}>${d.getDate()}</div>`;
     }
     return html + (open ? '</div></div>' : '');
   }
@@ -1498,7 +1517,8 @@
     let html = '';
     for (let i = 0; i < room.slot_count; i++) {
       const d = slotDate(i), end = addDays(d, 6);
-      html += `<div class="week-row sel${isFree(id, i) ? ' free' : ''}" data-slot="${i}">
+      const mine = isFree(id, i);
+      html += `<div class="week-row sel${mine ? ' free' : ''}" data-slot="${i}"${mine ? '' : heat(i, id)}>
         <span class="week-label">w/c ${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}</span>
         <span class="week-sub">${d.getDate()} ${MONTHS_SHORT[d.getMonth()]} – ${end.getDate()} ${MONTHS_SHORT[end.getMonth()]}</span>
       </div>`;
@@ -1510,7 +1530,8 @@
     let html = '<div class="month-grid">';
     for (let i = 0; i < room.slot_count; i++) {
       const d = slotDate(i);
-      html += `<div class="month-tile sel${isFree(id, i) ? ' free' : ''}" data-slot="${i}">
+      const mine = isFree(id, i);
+      html += `<div class="month-tile sel${mine ? ' free' : ''}" data-slot="${i}"${mine ? '' : heat(i, id)}>
         <div class="month-name">${MONTHS_SHORT[d.getMonth()]}</div>
         <div class="month-year">${d.getFullYear()}</div>
       </div>`;
@@ -1556,6 +1577,18 @@
     flushPending();
     if (room?.granularity === 'hours' && travelBuffer > 0) renderAvailGrid();
   });
+
+  // Pull everyone else's availability so the heatmap reflects the group. Only
+  // re-renders when something actually changed, and never mid-gesture or with
+  // unsaved edits queued — loadAllAvailability replaces each participant's
+  // slice wholesale and would otherwise clobber local state.
+  let lastHeatSig = '';
+  async function refreshHeatmap() {
+    if (isDragging || pendingSlots.size) return;
+    await loadAllAvailability();
+    const sig = Object.keys(availability).sort().join(',');
+    if (sig !== lastHeatSig) { lastHeatSig = sig; renderAvailGrid(); }
+  }
 
   // One bulk request per gesture instead of one per cell.
   async function flushPending() {
@@ -1762,7 +1795,7 @@
     document.querySelectorAll('#app-container .section').forEach(s => s.classList.remove('active'));
     document.getElementById('tab-' + name).classList.add('active');
 
-    if (name === 'avail') updatePersonSelect();
+    if (name === 'avail') { updatePersonSelect(); refreshHeatmap(); }
     if (name === 'results') {
       computeAndShow(false);
       if (!resultsRefreshInterval) {
@@ -1782,6 +1815,8 @@
       await loadRoom(currentRoomCode);
       if (participants.length !== before && isHostView) updatePersonSelect();
       renderParticipants();
+      // Keep the heatmap live while someone is marking their own time.
+      if (document.getElementById('tab-avail').classList.contains('active')) await refreshHeatmap();
     }, 4000);
   }
 

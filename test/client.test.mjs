@@ -13,6 +13,8 @@ globalThis.__T = {
   parseISO, toISO, addDays, addMonths, mondayOf, nextMonday,
   slotDate, slotSegment, windowLabel, durationSummary, findBestWindows,
   esc, renderParticipants, updatePersonSelect, computeAndShow,
+  heat, renderAvailGrid,
+  setAvailability: a => { availability = a; },
   setRoom: r => { room = r; },
   setPeople: (p, meId) => { participants = p; currentParticipantId = meId; },
   setHostView: v => { isHostView = v; },
@@ -305,6 +307,41 @@ for (const [name, rm, fx] of [
   const html2 = byId.get('results-container').innerHTML;
   eq('no window fits: spinner cleared', /Finding best windows/.test(html2), false);
   eq('no window fits: explains the duration', /3 consecutive days/.test(html2), true);
+}
+
+// ── Heatmap ─────────────────────────────────────────────────────────────────
+section('Availability heatmap');
+{
+  const alphaOf = s => { const m = s.match(/rgba\(29,158,117,([\d.]+)\)/); return m ? parseFloat(m[1]) : null; };
+  const cellFor = (html, i) => (html.match(new RegExp(`<div[^>]*data-slot="${i}"[^>]*>`)) || [''])[0];
+
+  T.setRoom({ granularity: 'days', range_start: '2027-06-01', slot_count: 10, duration_slots: 1 });
+  T.setPeople([{ id:1, name:'Me' }, { id:2, name:'B' }, { id:3, name:'C' }], 1);
+  // slot 3: both others free · slot 5: one other · slot 7: only me · slot 0: nobody
+  T.setAvailability({ '2-3': true, '3-3': true, '2-5': true, '1-7': true });
+
+  eq('heat: nobody free -> no tint', T.heat(0, 1), '');
+  eq('heat: my own slot ignores me', T.heat(7, 1), '');
+  const a1 = alphaOf(T.heat(5, 1)), a2 = alphaOf(T.heat(3, 1));
+  eq('heat: 1-of-2 produces a tint', a1 > 0, true);
+  eq('heat: 2-of-2 is stronger than 1-of-2', a2 > a1, true);
+  eq('heat: full agreement caps at 0.70', a2, 0.70);
+  eq('heat: tooltip counts others', /title="1 of 2 others free"/.test(T.heat(5, 1)), true);
+
+  byId.get('person-select').value = '1';
+  T.setHostView(false);
+  T.renderAvailGrid();
+  const html = byId.get('grid-mount').innerHTML;
+
+  eq('grid: others-free cell is tinted', alphaOf(cellFor(html, 3)) > 0, true);
+  eq('grid: empty cell has no tint', alphaOf(cellFor(html, 0)), null);
+  // My own picks must stay solid green — an inline tint would override .free.
+  eq('grid: my own cell has class free', /\bfree\b/.test(cellFor(html, 7)), true);
+  eq('grid: my own cell has no inline tint', alphaOf(cellFor(html, 7)), null);
+
+  // Solo room: nothing to compare against, so no tint anywhere.
+  T.setPeople([{ id:1, name:'Me' }], 1);
+  eq('heat: solo room has no heat', T.heat(3, 1), '');
 }
 
 // ── Report ──────────────────────────────────────────────────────────────────
