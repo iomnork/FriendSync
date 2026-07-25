@@ -855,6 +855,12 @@
   let isDragging = false, dragValue = null;
   let pendingSlots = new Map();    // slotIndex -> bool, flushed on pointerup
 
+  // Escape anything user-controlled before it goes into innerHTML. Participant
+  // names are attacker-chosen (anyone with the room link can pick one), so
+  // interpolating them raw is stored XSS against every other person in the room.
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
   // ── Storage helpers ────────────────────────────────────────────────────────
   function saveStoredRoom(code, data) {
     try { localStorage.setItem(`findtime_${code}`, JSON.stringify(data)); } catch (e) {}
@@ -1322,12 +1328,12 @@
     const sel = document.getElementById('person-select');
     if (!isHostView) {
       const me = participants.find(p => p.id === currentParticipantId);
-      sel.innerHTML = `<option value="${currentParticipantId}">${me?.name || 'You'}</option>`;
+      sel.innerHTML = `<option value="${currentParticipantId}">${esc(me?.name || 'You')}</option>`;
       sel.value = String(currentParticipantId);
       sel.disabled = true;
     } else {
       sel.disabled = false;
-      sel.innerHTML = participants.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+      sel.innerHTML = participants.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
       if (currentParticipantId) sel.value = String(currentParticipantId);
     }
     renderAvailGrid();
@@ -1618,11 +1624,69 @@
       const done = Object.keys(availability).some(k => k.startsWith(p.id + '-'));
       const isMe = p.id === currentParticipantId;
       return `<div class="participant-row">
-        <div class="avatar" style="background:${bg};color:${fg}">${p.name.slice(0, 2).toUpperCase()}</div>
-        <span class="p-name">${p.name}${isMe ? ' <span style="font-weight:400;color:var(--color-text-tertiary)">(you)</span>' : ''}</span>
+        <div class="avatar" style="background:${bg};color:${fg}">${esc(p.name.slice(0, 2).toUpperCase())}</div>
+        <span class="p-name">${esc(p.name)}${isMe ? ' <span style="font-weight:400;color:var(--color-text-tertiary)">(you)</span>' : ''}</span>
         <span class="p-status"><span class="status-dot ${done ? 'dot-done' : 'dot-pending'}"></span>${done ? 'Set' : 'Pending'}</span>
       </div>`;
     }).join('');
+  }
+
+  /**
+   * Core overlap search. Pure — no DOM, no globals — so it can be tested
+   * directly and reasoned about independently of rendering.
+   *
+   * @param rm      room object (granularity, slot_count, duration_slots)
+   * @param people  participants, each with .id and .travel_buffer_minutes
+   * @param freeFn  (participantId, slotIndex) => boolean
+   * @returns       up to `limit` non-overlapping windows, best first
+   */
+  function findBestWindows(rm, people, freeFn, limit = 10) {
+    const need = rm.duration_slots;
+    const total = people.length;
+    const buffered = rm.granularity === 'hours';
+    // Hours mode is segmented per day: a meeting cannot span the 11pm→8am gap.
+    const seg = i => (buffered ? Math.floor(i / SLOTS_PER_DAY) : 0);
+
+    // Contiguous runs where at least one person is free, broken at segment edges.
+    const runs = [];
+    let run = [];
+    for (let i = 0; i < rm.slot_count; i++) {
+      const anyFree = people.some(p => freeFn(p.id, i));
+      const breaks = run.length > 0 && seg(i) !== seg(i - 1);
+      if (!anyFree || breaks) { if (run.length) runs.push(run); run = []; }
+      if (anyFree) run.push(i);
+    }
+    if (run.length) runs.push(run);
+
+    // Slide a window of `need` across each run.
+    const windows = [];
+    for (const r of runs) {
+      for (let j = 0; j + need <= r.length; j++) {
+        const startIdx = r[j];
+        let free = 0;
+        for (const p of people) {
+          // A person counts only if free for the whole window, plus their own
+          // travel buffer either side (hours mode only).
+          const buf = buffered ? Math.ceil((p.travel_buffer_minutes || 0) / 30) : 0;
+          let ok = true;
+          for (let s = startIdx - buf; s <= startIdx + need - 1 + buf; s++) {
+            if (s < 0 || s >= rm.slot_count || seg(s) !== seg(startIdx) || !freeFn(p.id, s)) { ok = false; break; }
+          }
+          if (ok) free++;
+        }
+        if (free > 0) windows.push({ startIdx, free, total });
+      }
+    }
+
+    windows.sort((a, b) => b.free - a.free || a.startIdx - b.startIdx);
+
+    // Non-overlapping only, so one long free stretch can't fill the whole list.
+    const picked = [];
+    for (const w of windows) {
+      if (!picked.some(p => w.startIdx < p.startIdx + need && w.startIdx + need > p.startIdx)) picked.push(w);
+      if (picked.length === limit) break;
+    }
+    return picked;
   }
 
   async function computeAndShow(autoRefresh = false) {
@@ -1643,53 +1707,7 @@
       return;
     }
 
-    const total = participants.length;
-    const need = room.duration_slots;
-    const buffered = room.granularity === 'hours';
-
-    // Free-count per slot, then contiguous runs that stay inside one segment.
-    const runs = [];
-    let run = [];
-    for (let i = 0; i < room.slot_count; i++) {
-      const free = participants.reduce((n, p) => n + (isFree(p.id, i) ? 1 : 0), 0);
-      // In hours mode a run must not span the 11pm→8am gap between days.
-      const breaks = run.length > 0 && slotSegment(i) !== slotSegment(i - 1);
-      if (!free || breaks) { if (run.length) runs.push(run); run = []; }
-      if (free) run.push(i);
-    }
-    if (run.length) runs.push(run);
-
-    const windows = [];
-    for (const r of runs) {
-      for (let j = 0; j + need <= r.length; j++) {
-        const startIdx = r[j];
-        // A participant counts only if free for every slot in the window —
-        // plus their own travel buffer either side, in hours mode.
-        let free = 0;
-        for (const p of participants) {
-          const buf = buffered ? Math.ceil((p.travel_buffer_minutes || 0) / 30) : 0;
-          const lo = startIdx - buf, hi = startIdx + need - 1 + buf;
-          let ok = true;
-          for (let s = lo; s <= hi; s++) {
-            // The window plus its buffer must stay inside the range, inside the
-            // same segment (day, in hours mode), and be free throughout.
-            const outOfRange = s < 0 || s >= room.slot_count;
-            if (outOfRange || slotSegment(s) !== slotSegment(startIdx) || !isFree(p.id, s)) { ok = false; break; }
-          }
-          if (ok) free++;
-        }
-        if (free > 0) windows.push({ startIdx, free, total });
-      }
-    }
-
-    windows.sort((a, b) => b.free - a.free || a.startIdx - b.startIdx);
-
-    // Keep only non-overlapping windows so one long free stretch can't fill the list.
-    const picked = [];
-    for (const w of windows) {
-      if (!picked.some(p => w.startIdx < p.startIdx + need && w.startIdx + need > p.startIdx)) picked.push(w);
-      if (picked.length === 10) break;
-    }
+    const picked = findBestWindows(room, participants, isFree);
 
     if (!picked.length) {
       container.innerHTML = `<div class="empty-state">No window long enough for ${durationSummary().toLowerCase().replace('looking for ', '')}.<br>Try marking more availability or shortening the duration.</div>`;
