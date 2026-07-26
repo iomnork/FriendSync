@@ -98,6 +98,88 @@ If the site 502s, the tunnel is up but the app is not — check
 
 ---
 
+## 5. Hardening (done 2026-07-26, when the app went public)
+
+### Rate limiting — in the app
+
+Keyed on `CF-Connecting-IP`, **not** `req.ip`: behind the tunnel every request
+genuinely arrives from `127.0.0.1`, so limiting on `req.ip` would put the whole
+internet in one bucket and lock everyone out the moment one person was busy.
+
+That header is only trustworthy because nothing can reach the origin except
+through the tunnel. **If this app is ever port-forwarded, that assumption
+breaks** and the header becomes forgeable.
+
+| Endpoint | Budget |
+|---|---|
+| `POST /api/rooms` | 30 / hour |
+| `POST /api/rooms/:code/join` | 40 / hour |
+| availability + travel-buffer writes | 300 / minute |
+| everything under `/api` | 600 / minute |
+
+Counted per *attempt*, not per success, so spraying invalid payloads is limited
+too. Responses carry `RateLimit-Limit`, `RateLimit-Remaining` and
+`RateLimit-Reset`; a rejection is `429` with `Retry-After`.
+
+### Firewall
+
+```bash
+sudo apt install -y ufw
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow from 192.168.1.0/24 to any port 22   proto tcp comment 'SSH from LAN'
+sudo ufw allow from 192.168.1.0/24 to any port 3000 proto tcp comment 'app from LAN'
+sudo ufw allow from 192.168.1.0/24 to any port 3001 proto tcp comment 'game bot from LAN'
+sudo ufw --force enable
+```
+
+This does not affect the public site: `cloudflared` dials **outbound** (covered
+by `default allow outgoing`) and reaches the app over **loopback**, which ufw
+does not filter. Port 3000 simply stops being reachable from anything but the
+LAN.
+
+> Always add the SSH rule **before** `enable`, and check the source subnet
+> first (`echo $SSH_CLIENT`). Enabling ufw with no SSH rule locks you out of a
+> headless machine.
+
+### Response headers
+
+`x-powered-by` is disabled — announcing the stack tells a scanner which CVE
+list to work through. `X-Content-Type-Options`, `X-Frame-Options` and
+`Referrer-Policy` are set on every response.
+
+### Backups
+
+[`backup.sh`](backup.sh) runs nightly at 03:00 from nickspi's crontab. Dumps to
+`~/backups/findtime-YYYY-MM-DD.sql.gz`, keeps 14, logs to `~/backups/backup.log`.
+
+```bash
+crontab -l                     # confirm the schedule
+tail ~/backups/backup.log      # did last night work?
+./deploy/backup.sh             # run one now
+```
+
+Writes to a temp file and moves into place only on success — an interrupted
+dump would otherwise leave a truncated file that looks valid right up until you
+need it.
+
+**Restoring is not tested by the backup running.** Periodically prove it:
+
+```bash
+createdb findtime_restoretest
+gunzip -c ~/backups/findtime-2026-07-26.sql.gz | psql findtime_restoretest
+psql findtime_restoretest -c '\dt'
+dropdb findtime_restoretest
+```
+
+### Not covered by any of the above
+
+- **The router.** Any pre-existing port forward or UPnP-opened port is exposed
+  independently of this app. Worth auditing in the router admin page.
+- **No authentication.** Anyone with a room code is in, by design. Codes are
+  6 chars from a 32-symbol alphabet (~1.07 billion), so guessing is
+  impractical, but there is no account model.
+
 ## Routine operations
 
 ```bash
