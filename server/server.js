@@ -22,6 +22,19 @@ const pool = process.env.DATABASE_URL
       database: process.env.PGDATABASE || 'findtime'
     });
 
+// Don't advertise the stack. "x-powered-by: Express" tells a scanner exactly
+// what to look up CVEs for, and buys nothing in return.
+app.disable('x-powered-by');
+
+// Modest hardening for a public origin. Cloudflare terminates TLS in front of
+// this, but these travel through to the browser.
+app.use((req, res, next) => {
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('X-Frame-Options', 'SAMEORIGIN');          // no clickjacking via iframe
+  res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
 app.use(express.json({ limit: '256kb' }));
 app.use(express.static(path.join(__dirname, "..", "client")));
 
