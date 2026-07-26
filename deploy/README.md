@@ -39,42 +39,62 @@ systemctl status findtime --no-pager
 
 Check it: `curl localhost:3000/api/health` → `{"ok":true,...}`
 
-## 4. Public access via Cloudflare Tunnel
+## 4. Public access via Cloudflare Tunnel — DONE
 
-Gives an HTTPS URL without port forwarding; the Pi dials out, so nothing is
-exposed inbound.
+**Live at https://whencanwemeet.app**
+
+The Pi dials **out** to Cloudflare and holds the connection open. Nothing is
+exposed inbound: no port forwarding, no firewall holes, and the home IP address
+never appears in public DNS. TLS terminates at Cloudflare, and `.app` is an
+HSTS-preloaded TLD, so browsers refuse plain HTTP for it outright.
+
+Already done, recorded here for rebuilds:
 
 ```bash
 # Install (arm64)
 curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64.deb -o /tmp/cf.deb
 sudo dpkg -i /tmp/cf.deb
 
-# Authenticate — opens a browser, pick the domain you added to Cloudflare
+# Authenticate — opens a browser to pick the zone
 cloudflared tunnel login
 
-# Create the tunnel and point a hostname at the local app
-cloudflared tunnel create findtime
-cloudflared tunnel route dns findtime findtime.<your-domain>
+# Create the tunnel and point both hostnames at it
+cloudflared tunnel create whencanwemeet
+cloudflared tunnel route dns whencanwemeet whencanwemeet.app
+cloudflared tunnel route dns whencanwemeet www.whencanwemeet.app
 
-# Run it as a service
+# Promote to a system service
+sudo mkdir -p /etc/cloudflared
+sudo cp ~/.cloudflared/config.yml /etc/cloudflared/config.yml
+sudo cp ~/.cloudflared/<TUNNEL-UUID>.json /etc/cloudflared/
+sudo sed -i 's|/home/nickspi/.cloudflared|/etc/cloudflared|' /etc/cloudflared/config.yml
 sudo cloudflared service install
 sudo systemctl enable --now cloudflared
 ```
 
-Tunnel config lives at `/etc/cloudflared/config.yml`:
+Current tunnel: **`whencanwemeet`**, id `c590e440-17bc-4b7b-b980-3abcc7ff91c8`.
+Config lives at `/etc/cloudflared/config.yml` — see
+[cloudflared-config.yml](cloudflared-config.yml) for the version-controlled copy.
 
-```yaml
-tunnel: findtime
-credentials-file: /root/.cloudflared/<TUNNEL-UUID>.json
-ingress:
-  - hostname: findtime.<your-domain>
-    service: http://localhost:3000
-  - service: http_status:404
+The credentials JSON is a **secret** and is deliberately not in this repo.
+Losing it means deleting and recreating the tunnel.
+
+### Tunnel operations
+
+```bash
+cloudflared tunnel list                  # tunnels and their connections
+cloudflared tunnel info whencanwemeet    # which edge locations it is connected to
+cloudflared tunnel ingress validate      # check config before restarting
+journalctl -u cloudflared -f             # live logs
+sudo systemctl restart cloudflared       # after editing the config
 ```
 
-> Cloudflare Tunnel needs a domain on a Cloudflare account. For a throwaway
-> test URL with no domain, `cloudflared tunnel --url http://localhost:3000`
-> prints a temporary `*.trycloudflare.com` address that dies with the process.
+If the site 502s, the tunnel is up but the app is not — check
+`systemctl status findtime` first.
+
+> For a throwaway test URL with no domain,
+> `cloudflared tunnel --url http://localhost:3000` prints a temporary
+> `*.trycloudflare.com` address that dies with the process.
 
 ---
 

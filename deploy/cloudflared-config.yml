@@ -1,13 +1,13 @@
-# Cloudflare Tunnel config for whencanwemeet.app
-#
-# Install to /etc/cloudflared/config.yml (needs sudo), replacing <TUNNEL-UUID>
-# with the id printed by `cloudflared tunnel create whencanwemeet`.
+# Cloudflare Tunnel config for whencanwemeet.app — live copy of what is
+# deployed at /etc/cloudflared/config.yml on the Pi.
 #
 # The Pi dials OUT to Cloudflare, so nothing is exposed inbound: no port
 # forwarding, no firewall holes, and the home IP is never published in DNS.
+#
+# The credentials JSON referenced below is a SECRET and is not in this repo.
 
 tunnel: whencanwemeet
-credentials-file: /root/.cloudflared/<TUNNEL-UUID>.json
+credentials-file: /etc/cloudflared/c590e440-17bc-4b7b-b980-3abcc7ff91c8.json
 
 # Do not let a slow origin look like an outage.
 originRequest:
