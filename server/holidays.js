@@ -79,23 +79,26 @@ function substitute(d) {
 function isleOfManHolidays(year) {
   const easter = easterSunday(year);
 
-  // Already tied to a weekday by their own rule — these never move.
+  // Titles deliberately match gov.uk's wording for the holidays the Isle of Man
+  // shares with the UK (same date, same day off). getHolidays() merges on
+  // date + title, so "Late Summer Bank Holiday" vs "Summer bank holiday" would
+  // otherwise render 30 August twice. Genuinely Manx days keep their own names.
   const pinned = [
     { date: addDays(easter, -2), title: 'Good Friday' },
     { date: addDays(easter, 1), title: 'Easter Monday' },
-    { date: nthWeekday(year, 5, 1, 1), title: 'Early May Bank Holiday' },
-    { date: nthWeekday(year, 5, 1, -1), title: 'Spring Bank Holiday' },
+    { date: nthWeekday(year, 5, 1, 1), title: 'Early May bank holiday' },
+    { date: nthWeekday(year, 5, 1, -1), title: 'Spring bank holiday' },
     // TT Senior Race Day follows the annual TT schedule and is not derivable
     // from the calendar. The first Friday in June is the usual shape, but it
     // moves and can be postponed for weather. Flagged so the UI can show it as
     // provisional rather than assert a date it cannot know.
     { date: nthWeekday(year, 6, 5, 1), title: 'TT Senior Race Day', approximate: true },
-    { date: nthWeekday(year, 8, 1, -1), title: 'Late Summer Bank Holiday' },
+    { date: nthWeekday(year, 8, 1, -1), title: 'Summer bank holiday' },
   ];
 
   // Fixed calendar dates, which substitute forward if they land on a weekend.
   const fixed = [
-    { date: utc(year, 1, 1), title: "New Year's Day" },
+    { date: utc(year, 1, 1), title: 'New Year’s Day' },
     { date: utc(year, 7, 5), title: 'Tynwald Day' },
     { date: utc(year, 12, 25), title: 'Christmas Day' },
     { date: utc(year, 12, 26), title: 'Boxing Day' },
@@ -195,7 +198,13 @@ async function getHolidays(region, from, to) {
   for (let y = +from.slice(0, 4); y <= +to.slice(0, 4); y++) years.push(y);
 
   const wanted = region === 'all' ? REGIONS : [region];
-  const merged = new Map(); // "date|title" -> entry
+  const merged = new Map();
+
+  // Merge on a normalised title so the same day off never renders twice
+  // because of casing or a curly apostrophe. Display keeps the first title
+  // seen, and gov.uk regions are iterated before the Isle of Man, so official
+  // wording wins.
+  const normTitle = t => t.toLowerCase().replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim();
 
   for (const r of wanted) {
     const list = r === 'isle-of-man'
@@ -204,7 +213,7 @@ async function getHolidays(region, from, to) {
 
     for (const h of list) {
       if (h.date < from || h.date > to) continue;
-      const key = `${h.date}|${h.title}`;
+      const key = `${h.date}|${normTitle(h.title)}`;
       if (merged.has(key)) {
         merged.get(key).regions.push(r);
       } else {

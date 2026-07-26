@@ -112,9 +112,41 @@ section('Isle of Man');
   eq('dates are sorted', h2027.map(x => x.date), [...h2027.map(x => x.date)].sort());
   eq('no duplicate dates', new Set(h2027.map(x => x.date)).size, 10);
 
-  // IoM has holidays the UK does not, and vice versa.
-  eq('IoM lacks the UK late-August-only naming',
-     titles.includes('Late Summer Bank Holiday'), true);
+  // Shared holidays must use gov.uk's exact wording, or the "all" view renders
+  // the same day off twice — once per naming convention.
+  eq('shared August holiday matches gov.uk wording',
+     titles.includes('Summer bank holiday'), true);
+  eq('shared May holidays match gov.uk wording',
+     titles.filter(t => t === 'Early May bank holiday' || t === 'Spring bank holiday').length, 2);
+  eq('New Year uses gov.uk’s curly apostrophe',
+     titles.includes('New Year’s Day'), true);
+}
+
+section('Cross-region merging');
+{
+  // 30 Aug 2027 is the last Monday in August: a holiday in E&W, NI and IoM.
+  // It must appear ONCE, credited to all three, not once per naming style.
+  const aug = await H.getHolidays('all', '2027-08-30', '2027-08-30');
+  eq('last Monday in August is a single entry', aug.length, 1);
+  eq('credited to E&W, NI and IoM',
+     aug[0].regions.slice().sort(), ['england-and-wales', 'isle-of-man', 'northern-ireland']);
+  eq('Scotland excluded (its summer holiday is in early August)',
+     aug[0].regions.includes('scotland'), false);
+
+  // Scotland's really is a different date.
+  const scotAug = await H.getHolidays('scotland', '2027-08-01', '2027-08-31');
+  eq('Scotland summer holiday is early August', scotAug[0].date, '2027-08-02');
+
+  // No date in a whole year should carry duplicate titles once normalised.
+  const all2027 = await H.getHolidays('all', '2027-01-01', '2027-12-31');
+  const seen = new Set();
+  const dupes = all2027.filter(h => {
+    const k = `${h.date}|${h.title.toLowerCase().replace(/[‘’]/g, "'")}`;
+    if (seen.has(k)) return true;
+    seen.add(k);
+    return false;
+  });
+  eq('no duplicate date+title across 2027', dupes.map(d => `${d.date} ${d.title}`), []);
 }
 
 // ── Range query ─────────────────────────────────────────────────────────────
