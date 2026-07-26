@@ -55,16 +55,82 @@
       }
     }
 
+    /* Base colour lives on <html> so body's pseudo-element layers below can
+       paint over it without being hidden by body's own background. */
+    html { background: var(--color-background-tertiary); }
+
     body {
       font-family: var(--font-sans);
-      background: var(--color-background-tertiary);
+      background: transparent;
       min-height: 100vh;
       display: flex;
       justify-content: center;
       padding: 2.5rem 1rem 5rem;
     }
 
-    .app { width: 100%; max-width: 680px; }
+    /* ══ Backdrop ════════════════════════════════════════════════════════════
+       Three near-invisible layers. The aim is depth you notice only if you go
+       looking — floating blobs and glow are what make a page look generated.
+
+       1. A slow colour wash, animated by transform (GPU) rather than by
+          background-position, which would repaint every frame.
+       2. A faint grid, masked so it dissolves down the page. A calendar app
+          earns a grid; it is thematic rather than arbitrary decoration.
+       3. Film grain, which is what keeps CSS gradients from reading as CSS
+          gradients. Inline SVG turbulence, so no network request. */
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: -25%;
+      z-index: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(closest-side at 22% 28%, rgba(29,158,117,0.11), transparent),
+        radial-gradient(closest-side at 78% 68%, rgba(224,138,30,0.075), transparent),
+        radial-gradient(closest-side at 55% 92%, rgba(29,158,117,0.06), transparent);
+      animation: drift 52s ease-in-out infinite alternate;
+      will-change: transform;
+    }
+    @keyframes drift {
+      from { transform: translate3d(-1.5%, -1%, 0) scale(1); }
+      to   { transform: translate3d(1.5%, 1%, 0) scale(1.07); }
+    }
+
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E"),
+        linear-gradient(rgba(28,26,22,0.030) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(28,26,22,0.030) 1px, transparent 1px);
+      background-size: 140px 140px, 46px 46px, 46px 46px;
+      opacity: 0.5;
+      -webkit-mask-image: radial-gradient(ellipse 120% 80% at 50% 0%, #000 15%, transparent 78%);
+      mask-image: radial-gradient(ellipse 120% 80% at 50% 0%, #000 15%, transparent 78%);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      body::before {
+        background:
+          radial-gradient(closest-side at 22% 28%, rgba(29,158,117,0.16), transparent),
+          radial-gradient(closest-side at 78% 68%, rgba(224,138,30,0.10), transparent),
+          radial-gradient(closest-side at 55% 92%, rgba(29,158,117,0.09), transparent);
+      }
+      body::after {
+        background-image:
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E"),
+          linear-gradient(rgba(255,255,255,0.028) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.028) 1px, transparent 1px);
+        opacity: 0.38;
+      }
+    }
+
+    /* Content sits above the backdrop. */
+    .app { width: 100%; max-width: 680px; position: relative; z-index: 1; }
 
     /* ── Header ── */
     .header { margin-bottom: 2rem; }
@@ -424,10 +490,12 @@
       padding: 2.5rem 1rem 2rem;
     }
     .landing-hero-icon {
-      font-size: 52px;
+      font-size: 46px;
       margin-bottom: 18px;
       display: block;
+      color: var(--color-accent);
     }
+    .action-card-icon { color: var(--color-accent); }
     .landing-hero h2 {
       font-size: 32px;
       font-weight: 800;
@@ -682,7 +750,7 @@
   <!-- LANDING PAGE -->
   <div id="screen-landing">
     <div class="landing-hero">
-      <span class="landing-hero-icon">🗓️</span>
+      <span class="landing-hero-icon"><i class="ti ti-calendar-stats" aria-hidden="true"></i></span>
       <h2>Find a time that works for everyone.</h2>
       <p>From a coffee next Tuesday to a fortnight away next summer. Create a room, share the link, and let everyone mark when they're free.</p>
     </div>
@@ -712,13 +780,13 @@
 
     <div class="action-grid">
       <div class="action-card">
-        <div class="action-card-icon">✨</div>
+        <div class="action-card-icon"><i class="ti ti-calendar-plus" aria-hidden="true"></i></div>
         <h3>Create a room</h3>
         <p>Set up a new scheduling session and invite your group.</p>
         <button class="btn btn-primary btn-full" onclick="showCreationForm()">Get started →</button>
       </div>
       <div class="action-card">
-        <div class="action-card-icon">🚪</div>
+        <div class="action-card-icon"><i class="ti ti-login-2" aria-hidden="true"></i></div>
         <h3>Join a room</h3>
         <p>Already have a room code? Jump straight in.</p>
         <div class="code-join-row">
@@ -775,7 +843,10 @@
           <input type="range" id="duration-slider" min="0.5" max="4" step="0.5" value="1" style="flex:1" />
           <span id="duration-display" style="font-size:14px;font-weight:600;color:var(--color-text-primary);min-width:64px;text-align:right;">1 hour</span>
         </div>
-        <select id="duration-select" style="width:100%; display:none;"></select>
+        <div id="duration-number-wrap" style="display:none; align-items:center; gap:10px;">
+          <input type="number" id="duration-number" min="1" step="1" value="7" inputmode="numeric" style="width:100px; text-align:center; font-weight:600;" />
+          <span id="duration-unit" style="font-size:14px; color:var(--color-text-secondary);">days</span>
+        </div>
         <p class="field-hint" id="duration-hint">30-min increments</p>
       </div>
 
@@ -1205,23 +1276,25 @@
         `<option value="${v}"${i === 1 ? ' selected' : ''}>${l}</option>`).join('');
     }
 
-    // Duration control: slider for hours, dropdown otherwise.
+    // Duration control: slider for hours (30-min steps suit a slider), a typed
+    // number for everything else — "how many days do you need" is a specific
+    // personal figure, not a menu choice.
     const hoursWrap = document.getElementById('duration-hours-wrap');
-    const durSelect = document.getElementById('duration-select');
+    const numWrap = document.getElementById('duration-number-wrap');
     if (selectedGrain === 'hours') {
       hoursWrap.style.display = 'flex';
-      durSelect.style.display = 'none';
+      numWrap.style.display = 'none';
       document.getElementById('duration-label').textContent = 'How long do you need?';
       document.getElementById('duration-hint').textContent = '30-min increments';
     } else {
       const d = DURATION_OPTIONS[selectedGrain];
       hoursWrap.style.display = 'none';
-      durSelect.style.display = '';
+      numWrap.style.display = 'flex';
       document.getElementById('duration-label').textContent = d.label;
-      document.getElementById('duration-hint').textContent = d.hint;
-      durSelect.innerHTML = Array.from({ length: d.max }, (_, i) => i + 1)
-        .map(n => `<option value="${n}"${n === (selectedGrain === 'days' ? 7 : 1) ? ' selected' : ''}>${n} ${d.unit}${n > 1 ? 's' : ''}</option>`)
-        .join('');
+      document.getElementById('duration-unit').textContent = d.unit + 's';
+      const num = document.getElementById('duration-number');
+      num.value = selectedGrain === 'days' ? 7 : 1;
+      syncDurationBounds();
     }
 
     // The room has to outlive the planning horizon. A holiday being planned a
@@ -1242,6 +1315,35 @@
       ? `Detected from your timezone (${tz}). Change it if that's not right.`
       : 'Could not detect your region — pick one if you want holidays marked.';
   }
+
+  /**
+   * Keep the duration input inside what the chosen range can actually hold —
+   * you cannot need a 60-day stay inside a 30-day search window. The ceiling
+   * therefore comes from the range, not a fixed list, which is precisely what
+   * a dropdown could not express.
+   */
+  function syncDurationBounds() {
+    if (selectedGrain === 'hours') return;
+    const d = DURATION_OPTIONS[selectedGrain];
+    const rangeLen = parseInt(document.getElementById('range-length-select').value, 10) || d.max;
+    const max = Math.max(1, Math.min(d.max, rangeLen));
+    const num = document.getElementById('duration-number');
+
+    num.max = max;
+    const v = parseInt(num.value, 10);
+    if (!Number.isInteger(v) || v < 1) num.value = 1;
+    else if (v > max) num.value = max;
+
+    document.getElementById('duration-hint').textContent = `${d.hint} Anything from 1 to ${max}.`;
+  }
+
+  document.getElementById('range-length-select')?.addEventListener('change', syncDurationBounds);
+  document.getElementById('duration-number')?.addEventListener('input', () => {
+    document.getElementById('duration-number').classList.remove('invalid');
+  });
+  // Clamp on blur rather than on every keystroke, so typing "12" is not
+  // rewritten to "1" the moment the first digit lands.
+  document.getElementById('duration-number')?.addEventListener('blur', syncDurationBounds);
 
   document.querySelectorAll('.emoji-btn').forEach(btn => {
     btn.addEventListener('click', function () {
@@ -1331,19 +1433,29 @@
       durationSlots = Math.round(parseFloat(durationSlider.value) * 2);
     } else if (selectedGrain === 'days') {
       slotCount = parseInt(document.getElementById('range-length-select').value, 10);
-      durationSlots = parseInt(document.getElementById('duration-select').value, 10);
+      durationSlots = parseInt(document.getElementById('duration-number').value, 10);
     } else if (selectedGrain === 'weeks') {
       start = mondayOf(start);
       slotCount = parseInt(document.getElementById('range-length-select').value, 10);
-      durationSlots = parseInt(document.getElementById('duration-select').value, 10);
+      durationSlots = parseInt(document.getElementById('duration-number').value, 10);
     } else {
       start.setDate(1);
       slotCount = parseInt(document.getElementById('range-length-select').value, 10);
-      durationSlots = parseInt(document.getElementById('duration-select').value, 10);
+      durationSlots = parseInt(document.getElementById('duration-number').value, 10);
     }
 
-    if (durationSlots > slotCount) {
-      alert('The duration you need is longer than the range you\'re searching. Widen the range or shorten the duration.');
+    // A typed duration can be blank or out of range in ways a dropdown never
+    // could, so it is validated rather than trusted.
+    if (!Number.isInteger(durationSlots) || durationSlots < 1 || durationSlots > slotCount) {
+      if (selectedGrain !== 'hours') {
+        const hint = document.getElementById('duration-hint');
+        hint.textContent = durationSlots > slotCount
+          ? `That is longer than the range you're searching. Pick 1 to ${slotCount}, or widen the range above.`
+          : 'Enter how long you need, as a whole number.';
+        hint.style.color = '#E24B4A';
+        setTimeout(() => { hint.style.color = ''; syncDurationBounds(); }, 4000);
+        flagMissing([[true, 'duration-number']]);
+      }
       return;
     }
 
