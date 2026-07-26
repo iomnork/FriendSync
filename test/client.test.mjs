@@ -12,7 +12,7 @@ src += `
 globalThis.__T = {
   parseISO, toISO, addDays, addMonths, mondayOf, nextMonday,
   slotDate, slotSegment, windowLabel, durationSummary, findBestWindows,
-  esc, renderParticipants, updatePersonSelect, computeAndShow,
+  esc, renderParticipants, updatePersonSelect, computeAndShow, setIfChanged,
   heat, heatOf, paintCell, renderAvailGrid, applySlot,
   setAvailability: a => { availability = a; },
   setRoom: r => { room = r; },
@@ -422,6 +422,48 @@ section('Selecting clears the heat tint');
   T.paintCell(hol, 3, 1);
   eq('holiday survives selection', hol.title, 'Tynwald Day');
   eq('tint still cleared on a holiday cell', hol.style.background, '');
+}
+
+// ── Render guard ────────────────────────────────────────────────────────────
+// Assigning innerHTML restarts CSS entrance animations. Results and the
+// participant list are re-rendered on a timer, so without this guard the
+// cascade would replay every few seconds and read as a flicker.
+section('setIfChanged');
+{
+  let writes = 0;
+  const el = { _h: '', get innerHTML() { return this._h; }, set innerHTML(v) { writes++; this._h = v; } };
+
+  eq('first write happens', T.setIfChanged(el, '<p>a</p>'), true);
+  eq('identical write is skipped', T.setIfChanged(el, '<p>a</p>'), false);
+  eq('changed write happens', T.setIfChanged(el, '<p>b</p>'), true);
+  eq('reverting is a change', T.setIfChanged(el, '<p>a</p>'), true);
+  eq('only real changes touched the DOM', writes, 3);
+
+  // Tracked per element, so two lists never mask each other.
+  const other = { _h: '', get innerHTML() { return this._h; }, set innerHTML(v) { this._h = v; } };
+  eq('per-element tracking', T.setIfChanged(other, '<p>a</p>'), true);
+
+  // Polling the results list repeatedly must not re-render it.
+  T.resetAvailability();
+  T.setRoom({ granularity: 'days', range_start: '2027-06-01', slot_count: 30, duration_slots: 3 });
+  T.setPeople([{ id: 1, name: 'A', travel_buffer_minutes: 0 }], 1);
+  ctx.__fx = { 1: [5, 6, 7, 8].map(i => ({ slot_index: i, is_available: true })) };
+
+  await T.computeAndShow(false);
+  const settled = byId.get('results-container').innerHTML;
+  eq('results rendered', /result-item/.test(settled), true);
+
+  let rerendered = false;
+  const rc = byId.get('results-container');
+  const realSet = Object.getOwnPropertyDescriptor(rc, 'innerHTML');
+  Object.defineProperty(rc, 'innerHTML', {
+    configurable: true,
+    get: () => settled,
+    set: () => { rerendered = true; },
+  });
+  await T.computeAndShow(true);   // an unchanged poll
+  if (realSet) Object.defineProperty(rc, 'innerHTML', realSet);
+  eq('unchanged poll does not re-render', rerendered, false);
 }
 
 // ── Report ──────────────────────────────────────────────────────────────────

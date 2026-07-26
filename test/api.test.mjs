@@ -32,7 +32,10 @@ S('duration > range -> 400', await req('POST', '/api/rooms', { ...V, durationSlo
 S('duration 0 -> 400', await req('POST', '/api/rooms', { ...V, durationSlots: 0 }), 400);
 S('missing name -> 400', await req('POST', '/api/rooms', { ...V, name: '' }), 400);
 S('whitespace name -> 400', await req('POST', '/api/rooms', { ...V, name: '   ' }), 400);
-S('missing emoji -> 400', await req('POST', '/api/rooms', { ...V, emoji: undefined }), 400);
+// Emoji is decoration, not information — a room without one is valid.
+S('missing emoji -> 200', await req('POST', '/api/rooms', { ...V, emoji: undefined }), 200);
+S('null emoji -> 200', await req('POST', '/api/rooms', { ...V, emoji: null }), 200);
+S('over-long emoji -> 400', await req('POST', '/api/rooms', { ...V, emoji: '🎉'.repeat(20) }), 400);
 S('empty body -> 400', await req('POST', '/api/rooms', {}), 400);
 
 console.log('-- Room lookup');

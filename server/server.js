@@ -52,7 +52,10 @@ app.post("/api/rooms", async (req, res) => {
     const { name, emoji, granularity, rangeStart, slotCount, durationSlots, expiryDays, region } = req.body;
 
     if (!name || !String(name).trim()) return res.status(400).json({ error: 'Room name is required' });
-    if (!emoji) return res.status(400).json({ error: 'An emoji is required' });
+    // Emoji is decorative and optional — the client falls back to a default.
+    if (emoji != null && String(emoji).length > 10) {
+      return res.status(400).json({ error: 'Emoji is too long' });
+    }
     if (!GRANULARITIES.includes(granularity)) {
       return res.status(400).json({ error: `granularity must be one of: ${GRANULARITIES.join(', ')}` });
     }
@@ -79,7 +82,7 @@ app.post("/api/rooms", async (req, res) => {
           `INSERT INTO rooms (code, name, emoji, granularity, range_start, slot_count, duration_slots, region, expires_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8, CURRENT_TIMESTAMP + ($9 || ' days')::interval)
            RETURNING ${ROOM_COLS}`,
-          [code, String(name).trim(), emoji, granularity, rangeStart, slotCount, durationSlots, region || null, days]
+          [code, String(name).trim(), emoji || null, granularity, rangeStart, slotCount, durationSlots, region || null, days]
         );
         return res.json(rows[0]);
       } catch (e) {

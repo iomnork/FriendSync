@@ -595,6 +595,77 @@
     }
     .save-pill.show { opacity: 1; }
 
+    /* ══ Motion ══════════════════════════════════════════════════════════════
+       Kept fast (150-260ms) and small. Movement here is meant to explain what
+       just changed — which panel replaced which, which rows are new — not to
+       be noticed in its own right. Every rule below is switched off wholesale
+       by prefers-reduced-motion at the bottom of this block. */
+
+    @keyframes fadeUp   { from { opacity: 0; transform: translateY(8px);  } to { opacity: 1; transform: none; } }
+    @keyframes fadeIn   { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes popIn    { 0% { opacity: 0; transform: scale(0.94); } 60% { transform: scale(1.02); } 100% { opacity: 1; transform: scale(1); } }
+    @keyframes shake    { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-5px); }
+                          40% { transform: translateX(5px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(3px); } }
+    @keyframes pulseRing{ 0% { box-shadow: 0 0 0 0 rgba(29,158,117,0.35); } 100% { box-shadow: 0 0 0 12px rgba(29,158,117,0); } }
+
+    /* Panels announce themselves when they become the active one. */
+    .section.active { animation: fadeUp 0.26s ease-out; }
+    #screen-landing { animation: fadeUp 0.32s ease-out; }
+
+    /* Landing furniture arrives in sequence rather than all at once. */
+    .landing-hero      { animation: fadeUp 0.4s ease-out both; }
+    #screen-landing > .card       { animation: fadeUp 0.4s 0.06s ease-out both; }
+    #screen-landing > .action-grid { animation: fadeUp 0.4s 0.12s ease-out both; }
+    .landing-hero-icon { animation: popIn 0.5s 0.05s ease-out both; }
+
+    /* Result rows cascade, so a reordered list is readable as it settles.
+       Capped at 8 — past that the last row waits too long to be worth it. */
+    .result-item { animation: fadeUp 0.3s ease-out both; }
+    .result-item:nth-child(1) { animation-delay: 0.00s }
+    .result-item:nth-child(2) { animation-delay: 0.03s }
+    .result-item:nth-child(3) { animation-delay: 0.06s }
+    .result-item:nth-child(4) { animation-delay: 0.09s }
+    .result-item:nth-child(5) { animation-delay: 0.12s }
+    .result-item:nth-child(6) { animation-delay: 0.15s }
+    .result-item:nth-child(7) { animation-delay: 0.18s }
+    .result-item:nth-child(n+8) { animation-delay: 0.21s }
+    .result-item.best { animation: popIn 0.36s ease-out both; }
+    .result-bar { transition: width 0.45s cubic-bezier(0.22,1,0.36,1); }
+
+    .participant-row { animation: fadeIn 0.3s ease-out both; }
+
+    /* Selection feedback on the two pickers. */
+    .emoji-btn, .grain-btn { transition: transform 0.16s ease, background 0.16s, border-color 0.16s, box-shadow 0.16s; }
+    .emoji-btn.selected { animation: popIn 0.28s ease-out; }
+    .grain-btn.selected { animation: popIn 0.24s ease-out; }
+    .emoji-btn:active, .grain-btn:active { transform: scale(0.95); }
+
+    /* The room code is the thing you came for — draw the eye once. */
+    .room-code { animation: popIn 0.45s 0.1s ease-out both; }
+    .copy-btn.copied { animation: pulseRing 0.6s ease-out; }
+
+    /* Inline validation, replacing a modal alert that stopped the world. */
+    input.invalid, select.invalid {
+      border-color: #E24B4A !important;
+      box-shadow: 0 0 0 3px rgba(226,75,74,0.14) !important;
+      animation: shake 0.35s ease-in-out;
+    }
+
+    .tab { transition: background 0.18s, color 0.18s, box-shadow 0.18s; }
+    .card { transition: box-shadow 0.2s; }
+
+    /* Anyone who has asked their OS for less motion gets none of it. Reduced
+       motion is an accessibility setting, not a preference to talk them out
+       of: vestibular disorders make this stuff genuinely unpleasant. */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+
     @media (max-width: 480px) {
       .grain-grid { grid-template-columns: 1fr; }
       .month-grid { grid-template-columns: repeat(2, 1fr); }
@@ -714,7 +785,7 @@
       </div>
 
       <div class="field">
-        <label>Pick an emoji</label>
+        <label>Add an emoji <span style="font-weight:400;color:var(--color-text-tertiary)">— optional</span></label>
         <div class="emoji-grid">
           <button class="emoji-btn" data-emoji="☕" title="Coffee">☕</button>
           <button class="emoji-btn" data-emoji="🍿" title="Movie">🍿</button>
@@ -725,6 +796,7 @@
           <button class="emoji-btn" data-emoji="🏖️" title="Holiday">🏖️</button>
           <button class="emoji-btn" data-emoji="💼" title="Work">💼</button>
         </div>
+        <p class="field-hint">Tap again to clear it. Purely for decoration.</p>
       </div>
 
       <div class="field">
@@ -900,6 +972,22 @@
   // interpolating them raw is stored XSS against every other person in the room.
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  /**
+   * Write markup only when it differs from what was last written to that
+   * element. Polling re-renders identical content every few seconds, and
+   * assigning innerHTML restarts CSS entrance animations — so without this
+   * the result list and participant list would flicker continuously.
+   * Compared against our own last value rather than el.innerHTML, which the
+   * browser normalises and would never match.
+   */
+  const _lastHtml = new WeakMap();
+  function setIfChanged(el, html) {
+    if (_lastHtml.get(el) === html) return false;
+    _lastHtml.set(el, html);
+    el.innerHTML = html;
+    return true;
+  }
 
   // ── Storage helpers ────────────────────────────────────────────────────────
   function saveStoredRoom(code, data) {
@@ -1157,8 +1245,11 @@
 
   document.querySelectorAll('.emoji-btn').forEach(btn => {
     btn.addEventListener('click', function () {
+      // Tapping the selected one clears it — the emoji is optional, so there
+      // has to be a way back to "none" once you've picked.
+      const wasSelected = this.classList.contains('selected');
       document.querySelectorAll('.emoji-btn').forEach(b => b.classList.remove('selected'));
-      this.classList.add('selected');
+      if (!wasSelected) this.classList.add('selected');
     });
   });
 
@@ -1169,6 +1260,33 @@
     const h = Math.floor(val), m = (val % 1) * 60;
     durationDisplay.textContent = h > 0 && m > 0 ? `${h}h ${m}m` : (h > 0 ? `${h} hour${h > 1 ? 's' : ''}` : `${m}m`);
   });
+
+  /**
+   * Mark empty required fields inline instead of firing an alert(). An alert
+   * blocks the page, says nothing about which field is wrong, and on mobile
+   * covers the form you are trying to fix. This shakes the offenders, scrolls
+   * to the first, and clears each as soon as it is typed into.
+   * @param checks [isMissing, elementId][]
+   */
+  function flagMissing(checks) {
+    let first = null;
+    for (const [missing, id] of checks) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      el.classList.remove('invalid');
+      if (!missing) continue;
+      // Reflow so the shake replays even if the field was already flagged.
+      void el.offsetWidth;
+      el.classList.add('invalid');
+      el.addEventListener('input', () => el.classList.remove('invalid'), { once: true });
+      el.addEventListener('change', () => el.classList.remove('invalid'), { once: true });
+      if (!first) first = el;
+    }
+    if (first) {
+      first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      first.focus({ preventScroll: true });
+    }
+  }
 
   function showCreationForm() {
     document.getElementById('screen-landing').style.display = 'none';
@@ -1184,8 +1302,8 @@
   function joinFromLanding() {
     const input = document.getElementById('landing-code-input');
     const code = input.value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (code.length !== 6) { input.style.borderColor = '#E24B4A'; input.focus(); return; }
-    input.style.borderColor = '';
+    if (code.length !== 6) { flagMissing([[true, 'landing-code-input']]); return; }
+    input.classList.remove('invalid');
     window.location.href = `/room/${code}`;
   }
 
@@ -1195,8 +1313,13 @@
     const emoji = document.querySelector('.emoji-btn.selected')?.dataset.emoji;
     const startRaw = document.getElementById('range-start-input').value;
 
-    if (!name || !emoji || !hostName || !startRaw) {
-      alert('Please fill in the start date, what it\'s for, an emoji, and your name.');
+    if (!name || !hostName || !startRaw) {
+      // Emoji is deliberately not required — it is decoration, not information.
+      flagMissing([
+        [!startRaw, 'range-start-input'],
+        [!name, 'room-name-input'],
+        [!hostName, 'host-name-input'],
+      ]);
       return;
     }
 
@@ -1367,6 +1490,8 @@
 
     if (ok) {
       btn.innerHTML = '<i class="ti ti-check" aria-hidden="true"></i> Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 600);
     } else {
       // Last resort: highlight the URL so it can be copied by hand.
       const el = document.getElementById('invite-url-display');
@@ -1394,8 +1519,8 @@
   async function joinRoom() {
     const input = document.getElementById('join-name-input');
     const name = input.value.trim();
-    if (!name) { input.style.borderColor = '#E24B4A'; return; }
-    input.style.borderColor = '';
+    if (!name) { flagMissing([[true, 'join-name-input']]); return; }
+    input.classList.remove('invalid');
 
     const btn = document.getElementById('join-btn');
     btn.textContent = 'Joining…';
@@ -1871,7 +1996,7 @@
       el.innerHTML = '<p style="font-size:14px;color:var(--color-text-secondary)">No one has joined yet.</p>';
       return;
     }
-    el.innerHTML = participants.map((p, i) => {
+    setIfChanged(el, participants.map((p, i) => {
       const [bg, fg] = AVAIL_COLORS[i % AVAIL_COLORS.length];
       const done = Object.keys(availability).some(k => k.startsWith(p.id + '-'));
       const isMe = p.id === currentParticipantId;
@@ -1880,7 +2005,7 @@
         <span class="p-name">${esc(p.name)}${isMe ? ' <span style="font-weight:400;color:var(--color-text-tertiary)">(you)</span>' : ''}</span>
         <span class="p-status"><span class="status-dot ${done ? 'dot-done' : 'dot-pending'}"></span>${done ? 'Set' : 'Pending'}</span>
       </div>`;
-    }).join('');
+    }).join(''));
   }
 
   /**
@@ -1967,7 +2092,7 @@
       return;
     }
 
-    container.innerHTML = picked.map((w, i) => {
+    const html = picked.map((w, i) => {
       const lab = windowLabel(w.startIdx, need);
       return `<div class="result-item${i === 0 ? ' best' : ''}">
         <div class="result-rank">${i === 0 ? '★' : i + 1}</div>
@@ -1977,6 +2102,10 @@
         <div class="result-count">${w.free}/${w.total}</div>
       </div>`;
     }).join('');
+
+    // Rewriting identical markup would restart the entrance animation on every
+    // 5s poll, turning a one-off cascade into a permanent flicker.
+    setIfChanged(container, html);
   }
 
   // ══════════════════════════════════════════════════════════════════════════
