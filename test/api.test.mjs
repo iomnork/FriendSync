@@ -93,6 +93,39 @@ S('buffer negative -> 400', await req('POST', `/api/participants/${alice.id}/tra
 S('buffer string -> 400', await req('POST', `/api/participants/${alice.id}/travel-buffer`, { travelBuffer: '30' }), 400);
 S('buffer nonexistent -> 404', await req('POST', '/api/participants/999999/travel-buffer', { travelBuffer: 30 }), 404);
 
+console.log('-- Rate limiting');
+{
+  // Verified by watching the budget decrement rather than by exhausting it:
+  // the limits are deliberately set above anything a test run should hit, and
+  // burning an hour-long budget here would break every later assertion.
+  const r1 = await fetch(`${B}/api/health`);
+  const r2 = await fetch(`${B}/api/health`);
+  const lim = r1.headers.get('ratelimit-limit');
+  const rem1 = Number(r1.headers.get('ratelimit-remaining'));
+  const rem2 = Number(r2.headers.get('ratelimit-remaining'));
+
+  check('RateLimit-Limit header present', !!lim, `got ${lim}`);
+  check('RateLimit-Remaining decrements', rem2 === rem1 - 1, `${rem1} then ${rem2}`);
+  check('RateLimit-Reset present', !!r1.headers.get('ratelimit-reset'));
+
+  // Writes carry their own tighter budget than the blanket /api one.
+  const w = await fetch(`${B}/api/availability`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ participantId: 1, slotIndex: 0, isAvailable: true })
+  });
+  check('write endpoints have a separate budget',
+    Number(w.headers.get('ratelimit-limit')) < Number(lim),
+    `write=${w.headers.get('ratelimit-limit')} api=${lim}`);
+
+  // Distinct client IPs must not share a bucket, or one busy visitor locks out
+  // everyone behind the tunnel.
+  const a = await fetch(`${B}/api/health`, { headers: { 'CF-Connecting-IP': '203.0.113.7' } });
+  const b = await fetch(`${B}/api/health`, { headers: { 'CF-Connecting-IP': '203.0.113.8' } });
+  check('separate IPs get separate buckets',
+    a.headers.get('ratelimit-remaining') === b.headers.get('ratelimit-remaining'),
+    `${a.headers.get('ratelimit-remaining')} vs ${b.headers.get('ratelimit-remaining')}`);
+}
+
 console.log('-- Concurrency');
 const raced = await Promise.all(Array.from({ length: 8 }, () => req('POST', `/api/rooms/${CODE}/join`, { name: 'Racer' })));
 const oks = raced.filter(r => r.status === 200).length;

@@ -35,7 +35,84 @@ app.use((req, res, next) => {
   next();
 });
 
+// cloudflared connects over loopback, so every request genuinely originates
+// from 127.0.0.1 as far as Express is concerned.
+app.set('trust proxy', 'loopback');
+
+/**
+ * The real client address. Behind the tunnel req.ip is always 127.0.0.1, so
+ * rate limiting on it would put every visitor in one bucket and lock out the
+ * whole world the moment one person was busy. Cloudflare puts the true client
+ * address in CF-Connecting-IP.
+ *
+ * That header is only trustworthy because nothing can reach this origin except
+ * through the tunnel — there is no exposed port for anyone to hit directly and
+ * forge it. If the app were ever port-forwarded, this would need rethinking.
+ */
+const clientIp = req => req.get('CF-Connecting-IP') || req.ip || 'unknown';
+
+/**
+ * Fixed-window rate limiter. Hand-rolled rather than pulled from npm: the
+ * whole thing is 25 lines, and a dependency here would be more supply chain
+ * than it is worth for a family-sized app.
+ */
+function rateLimit({ windowMs, max, message }) {
+  const hits = new Map();
+  // Sweep expired buckets, or a long uptime grows this map without bound.
+  setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of hits) if (v.resetAt <= now) hits.delete(k);
+  }, windowMs).unref();
+
+  return (req, res, next) => {
+    const now = Date.now();
+    const ip = clientIp(req);
+    let bucket = hits.get(ip);
+    if (!bucket || bucket.resetAt <= now) {
+      bucket = { count: 0, resetAt: now + windowMs };
+      hits.set(ip, bucket);
+    }
+    bucket.count++;
+
+    const resetIn = Math.ceil((bucket.resetAt - now) / 1000);
+    res.set('RateLimit-Limit', String(max));
+    res.set('RateLimit-Remaining', String(Math.max(0, max - bucket.count)));
+    res.set('RateLimit-Reset', String(resetIn));
+
+    if (bucket.count > max) {
+      res.set('Retry-After', String(resetIn));
+      return res.status(429).json({ error: message });
+    }
+    next();
+  };
+}
+
+// Room creation is the expensive one: it writes a row that can live for a year.
+// Counted per attempt, not per success — an attacker spraying invalid payloads
+// must be limited too, so rejected requests still consume budget. Set well
+// above any real use (nobody opens 30 rooms an hour) while leaving headroom for
+// the test suite, which makes ~17 creation attempts in a single run.
+const limitCreate = rateLimit({
+  windowMs: 60 * 60 * 1000, max: 30,
+  message: 'Too many rooms created from here. Try again in an hour.'
+});
+const limitJoin = rateLimit({
+  windowMs: 60 * 60 * 1000, max: 40,
+  message: 'Too many join attempts. Try again shortly.'
+});
+// Marking availability is chatty by design — a drag sends one bulk request on
+// release, and a household shares one public IP, so this is deliberately roomy.
+const limitWrite = rateLimit({
+  windowMs: 60 * 1000, max: 300,
+  message: 'Slow down a moment — too many changes at once.'
+});
+const limitApi = rateLimit({
+  windowMs: 60 * 1000, max: 600,
+  message: 'Too many requests. Try again in a minute.'
+});
+
 app.use(express.json({ limit: '256kb' }));
+app.use('/api', limitApi);
 app.use(express.static(path.join(__dirname, "..", "client")));
 
 const holidays = require('./holidays');
@@ -60,7 +137,7 @@ async function roomForParticipant(participantId) {
 
 // ── Rooms ────────────────────────────────────────────────────────────────────
 
-app.post("/api/rooms", async (req, res) => {
+app.post("/api/rooms", limitCreate, async (req, res) => {
   try {
     const { name, emoji, granularity, rangeStart, slotCount, durationSlots, expiryDays, region } = req.body;
 
@@ -131,7 +208,7 @@ app.get("/api/rooms/:code", async (req, res) => {
 
 // ── Participants ─────────────────────────────────────────────────────────────
 
-app.post("/api/rooms/:code/join", async (req, res) => {
+app.post("/api/rooms/:code/join", limitJoin, async (req, res) => {
   try {
     const name = String(req.body.name || '').trim();
     if (!name) return res.status(400).json({ error: 'Name is required' });
@@ -158,7 +235,7 @@ app.post("/api/rooms/:code/join", async (req, res) => {
   }
 });
 
-app.post("/api/participants/:id/travel-buffer", async (req, res) => {
+app.post("/api/participants/:id/travel-buffer", limitWrite, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const { travelBuffer } = req.body;
@@ -195,7 +272,7 @@ app.get("/api/participants/:id/availability", async (req, res) => {
 
 // ── Availability ─────────────────────────────────────────────────────────────
 
-app.post("/api/availability", async (req, res) => {
+app.post("/api/availability", limitWrite, async (req, res) => {
   try {
     const { participantId, slotIndex, isAvailable } = req.body;
     if (!Number.isInteger(participantId)) return res.status(400).json({ error: 'Invalid participantId' });
@@ -224,7 +301,7 @@ app.post("/api/availability", async (req, res) => {
  * meant a single "all day" quick-fill sent 210 concurrent requests.
  * Body: { participantId, slots: [{ slotIndex, isAvailable }, ...] }
  */
-app.post("/api/availability/bulk", async (req, res) => {
+app.post("/api/availability/bulk", limitWrite, async (req, res) => {
   const client = await pool.connect();
   try {
     const { participantId, slots } = req.body;
