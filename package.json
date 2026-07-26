@@ -1,7 +1,7 @@
 {
-  "name": "findtime",
-  "version": "1.0.0",
-  "description": "FindTime is a browser-based group scheduling app that helps friends and teams find the best time to meet. Users can join shared rooms, mark availability on a live calendar grid, and receive smart meeting suggestions in real time. Built with a focus on lightweight collaboration, privacy, and ease of use.",
+  "name": "whencanwemeet",
+  "version": "2.0.0",
+  "description": "When Can We Meet is a browser-based group scheduling app. Create a room, share the link, and everyone marks when they are free — across hours, days, weeks or months. Overlapping availability is ranked automatically, with public holidays and travel time taken into account.",
   "main": "index.js",
   "scripts": {
     "start": "node server/server.js",
