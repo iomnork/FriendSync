@@ -291,6 +291,43 @@ for (const [name, rm, fx] of [
   eq(`${name}: no literal undefined in output`, /undefined/.test(html), false);
 }
 
+// Reported bug: open Best times, flick back to Availability, return — and the
+// spinner stuck forever. The loading state was written to innerHTML directly,
+// so the change-guard still held the PREVIOUS results; recomputing the same
+// answer then looked like a no-op and the spinner was never replaced. Only
+// changing your availability unstuck it.
+section('Revisiting Best times with unchanged data');
+{
+  const rm = { granularity: 'days', range_start: '2027-06-01', slot_count: 30, duration_slots: 3 };
+  const fx = { 1: rows(5, 6, 7, 8), 2: rows(6, 7, 8, 9) };
+
+  T.resetAvailability();
+  T.setRoom(rm);
+  T.setPeople([{ id: 1, name: 'A', travel_buffer_minutes: 0 }, { id: 2, name: 'B', travel_buffer_minutes: 0 }], 1);
+  ctx.__fx = fx;
+
+  await T.computeAndShow(false);
+  const first = byId.get('results-container').innerHTML;
+  eq('first visit renders results', /result-item/.test(first), true);
+
+  // Leave and come back, with nothing changed in between.
+  for (let visit = 2; visit <= 4; visit++) {
+    await T.computeAndShow(false);
+    const html = byId.get('results-container').innerHTML;
+    eq(`visit ${visit}: spinner cleared`, /Finding best windows/.test(html), false);
+    eq(`visit ${visit}: results still shown`, /result-item/.test(html), true);
+    eq(`visit ${visit}: identical to first`, html, first);
+  }
+
+  // Two runs racing (a fast tab flick) must not leave the older one's output.
+  const a = T.computeAndShow(false);
+  const b = T.computeAndShow(false);
+  await Promise.all([a, b]);
+  const raced = byId.get('results-container').innerHTML;
+  eq('overlapping runs: spinner cleared', /Finding best windows/.test(raced), false);
+  eq('overlapping runs: results shown', /result-item/.test(raced), true);
+}
+
 // Empty-state paths must also clear the spinner.
 {
   T.resetAvailability();

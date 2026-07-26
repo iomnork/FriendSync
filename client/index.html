@@ -2178,21 +2178,34 @@
     return picked;
   }
 
+  // Guards against two overlapping runs: flicking between tabs can start a
+  // second computeAndShow while the first is still awaiting the network, and
+  // whichever finished last would win regardless of which was newer.
+  let computeSeq = 0;
+
   async function computeAndShow(autoRefresh = false) {
     const container = document.getElementById('results-container');
+    const seq = ++computeSeq;
+
     if (!autoRefresh) {
-      container.innerHTML = '<div class="empty-state"><i class="ti ti-loader-2 spin-icon"></i><br>Finding best windows…</div>';
+      // MUST go through setIfChanged. Writing innerHTML directly leaves
+      // _lastHtml holding the previous results, so if this run computes the
+      // same answer the write below is skipped as a no-op and the spinner
+      // stays up forever — which is exactly what happened when flicking
+      // between Availability and Best times.
+      setIfChanged(container, '<div class="empty-state"><i class="ti ti-loader-2 spin-icon"></i><br>Finding best windows…</div>');
     }
 
     await loadAllAvailability();
+    if (seq !== computeSeq) return;   // superseded while we were awaiting
     renderParticipants();
 
     if (!participants.length) {
-      container.innerHTML = '<div class="empty-state">No participants yet — share your room link!</div>';
+      setIfChanged(container, '<div class="empty-state">No participants yet — share your room link!</div>');
       return;
     }
     if (!Object.keys(availability).length) {
-      container.innerHTML = '<div class="empty-state">No availability entered yet.<br>Mark some free time first.</div>';
+      setIfChanged(container, '<div class="empty-state">No availability entered yet.<br>Mark some free time first.</div>');
       return;
     }
 
@@ -2200,7 +2213,7 @@
     const picked = findBestWindows(room, participants, isFree);
 
     if (!picked.length) {
-      container.innerHTML = `<div class="empty-state">No window long enough for ${durationSummary().toLowerCase().replace('looking for ', '')}.<br>Try marking more availability or shortening the duration.</div>`;
+      setIfChanged(container, `<div class="empty-state">No window long enough for ${durationSummary().toLowerCase().replace('looking for ', '')}.<br>Try marking more availability or shortening the duration.</div>`);
       return;
     }
 
