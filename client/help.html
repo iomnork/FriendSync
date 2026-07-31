@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>How it works · When Can We Meet</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #EDE9E1; --card: #FFFEFB; --soft: #F5F2EC;
+      --ink: #1C1A16; --ink2: #6B6660; --ink3: #A09B93;
+      --line: rgba(0,0,0,0.08); --line2: rgba(0,0,0,0.14);
+      --accent: #1D9E75; --accent-dark: #0F6E56; --accent-soft: #E8F7F2;
+      --amber: #B4700F; --amber-soft: rgba(224,138,30,0.12);
+      --r: 12px; --r-lg: 16px;
+      --sans: system-ui, -apple-system, sans-serif;
+      --mono: ui-monospace, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #332F2B; --card: #211F1B; --soft: #2A2724;
+        --ink: #F0EDE6; --ink2: #9A958D; --ink3: #6B6660;
+        --line: rgba(255,255,255,0.07); --line2: rgba(255,255,255,0.13);
+        --accent-soft: rgba(29,158,117,0.18); --amber: #E8A94E;
+      }
+    }
+    body {
+      font-family: var(--sans); background: var(--bg); color: var(--ink);
+      line-height: 1.65; padding: 2.5rem 1rem 5rem; display: flex; justify-content: center;
+    }
+    .wrap { width: 100%; max-width: 680px; }
+
+    .top { margin-bottom: 2rem; }
+    .top a {
+      font-size: 13px; color: var(--ink2); text-decoration: none;
+      display: inline-flex; align-items: center; gap: 5px; margin-bottom: 16px;
+    }
+    .top a:hover { color: var(--ink); }
+    h1 { font-size: 30px; font-weight: 800; letter-spacing: -0.5px; line-height: 1.2; }
+    .lede { font-size: 16px; color: var(--ink2); margin-top: 8px; }
+
+    .card {
+      background: var(--card); border-radius: var(--r-lg); padding: 1.5rem;
+      margin-bottom: 1rem; box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.06);
+    }
+    h2 {
+      font-size: 20px; font-weight: 700; letter-spacing: -0.2px;
+      margin-bottom: 4px; display: flex; align-items: center; gap: 10px;
+    }
+    h2 i { color: var(--accent); font-size: 22px; }
+    h2 + p { color: var(--ink2); font-size: 14px; margin-bottom: 18px; }
+    h3 { font-size: 15px; font-weight: 700; margin: 22px 0 8px; }
+
+    ol.steps { list-style: none; counter-reset: s; }
+    ol.steps > li {
+      counter-increment: s; position: relative; padding-left: 42px; padding-bottom: 20px;
+    }
+    ol.steps > li::before {
+      content: counter(s); position: absolute; left: 0; top: -2px;
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--accent); color: #fff;
+      font-size: 13px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+    }
+    /* Connecting line, so the sequence reads as one flow. */
+    ol.steps > li:not(:last-child)::after {
+      content: ''; position: absolute; left: 13.5px; top: 30px; bottom: 4px;
+      width: 1px; background: var(--line2);
+    }
+    ol.steps strong { font-weight: 700; }
+    ol.steps p { font-size: 14px; color: var(--ink2); margin-top: 2px; }
+
+    .note {
+      background: var(--soft); border-left: 3px solid var(--accent);
+      border-radius: 0 var(--r) var(--r) 0; padding: 12px 16px;
+      font-size: 14px; margin: 16px 0;
+    }
+    .note.warn { border-left-color: var(--amber); background: var(--amber-soft); }
+    .note strong { display: block; margin-bottom: 2px; }
+
+    .key { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+    .key:last-child { border-bottom: none; }
+    .swatch { width: 26px; height: 26px; border-radius: 6px; flex-shrink: 0; margin-top: 2px; }
+    .key-txt { font-size: 14px; }
+    .key-txt b { display: block; font-size: 14px; }
+    .key-txt span { color: var(--ink2); font-size: 13px; }
+
+    code {
+      font-family: var(--mono); font-size: 0.9em;
+      background: var(--soft); padding: 2px 6px; border-radius: 5px;
+    }
+    .faq { border-bottom: 1px solid var(--line); padding: 14px 0; }
+    .faq:last-child { border-bottom: none; }
+    .faq b { font-size: 15px; }
+    .faq p { font-size: 14px; color: var(--ink2); margin-top: 4px; }
+
+    .cta {
+      display: inline-block; background: var(--accent); color: #fff;
+      text-decoration: none; font-weight: 600; font-size: 15px;
+      padding: 12px 26px; border-radius: var(--r); margin-top: 8px;
+    }
+    .foot { text-align: center; color: var(--ink3); font-size: 13px; margin-top: 2rem; }
+    @media print {
+      body { background: #fff; padding: 0; }
+      .card { box-shadow: none; border: 1px solid #ccc; page-break-inside: avoid; }
+      .top a, .cta { display: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top">
+    <a href="/"><i class="ti ti-arrow-left"></i> Back to the app</a>
+    <h1>How it works</h1>
+    <p class="lede">Everything you need, in about three minutes. No account, no password, nothing to install.</p>
+  </div>
+
+  <div class="card">
+    <h2><i class="ti ti-bulb"></i> The idea</h2>
+    <p>In one paragraph.</p>
+    <p style="font-size:15px;">
+      One person creates a <strong>room</strong> and shares a link. Everyone who opens
+      that link marks the times they're free. The app compares everyone's answers and
+      shows the times that suit the most people. That's the whole thing.
+    </p>
+    <div class="note">
+      <strong>Nobody needs an account.</strong>
+      There's no signing up, no password to forget, and no app to download. If you can
+      open a link, you can use it.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><i class="ti ti-calendar-plus"></i> Setting up a room</h2>
+    <p>Do this once, if you're the one organising.</p>
+    <ol class="steps">
+      <li>
+        <strong>Open the app and tap "Get started"</strong>
+        <p>You'll land on a short form.</p>
+      </li>
+      <li>
+        <strong>Choose what you're planning</strong>
+        <p>
+          <em>A meeting</em> for something within one week, picked by the hour.
+          <em>A trip or event</em> to compare whole days. <em>Something longer</em>
+          for weeks, or <em>Rough planning</em> for months. This changes what everyone
+          is asked, so pick the one that matches.
+        </p>
+      </li>
+      <li>
+        <strong>Say when to look, and how long you need</strong>
+        <p>
+          For a holiday you might search the next 6 months and need 10 days.
+          The app then hunts for a 10-day stretch that works for everyone.
+        </p>
+      </li>
+      <li>
+        <strong>Give it a name and enter yours</strong>
+        <p>The emoji is optional — skip it if you'd rather.</p>
+      </li>
+      <li>
+        <strong>Tap "Generate room" and share the link</strong>
+        <p>
+          Use the <strong>Copy</strong> button and paste it into WhatsApp, a text,
+          or an email. Anyone with that link can join.
+        </p>
+      </li>
+    </ol>
+    <div class="note">
+      <strong>Keep the link somewhere safe.</strong>
+      It's the only way back into your room. There's no "my rooms" list to look it up,
+      so send it to yourself as well.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><i class="ti ti-users"></i> Joining a room</h2>
+    <p>For everyone who's been sent a link.</p>
+    <ol class="steps">
+      <li>
+        <strong>Tap the link</strong>
+        <p>It opens straight in your browser. Nothing to install.</p>
+      </li>
+      <li>
+        <strong>Put your name in</strong>
+        <p>
+          Your real name so people know who's who — or tap one of the suggested
+          aliases like <em>Purple Fox</em> if you'd rather stay anonymous.
+        </p>
+      </li>
+      <li>
+        <strong>Mark when you're free</strong>
+        <p>
+          Tap the times, days, weeks or months that suit you. Drag your finger across
+          several to select a run of them in one go. Tap again to unselect.
+        </p>
+      </li>
+      <li>
+        <strong>That's it — it saves itself</strong>
+        <p>
+          There's no "submit" button. Everything saves as you go, and you can come back
+          and change your mind whenever you like.
+        </p>
+      </li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2><i class="ti ti-palette"></i> What the colours mean</h2>
+    <p>On the availability screen.</p>
+
+    <div class="key">
+      <div class="swatch" style="background:#1D9E75"></div>
+      <div class="key-txt"><b>Solid green — you're free</b>
+        <span>The times you've chosen.</span></div>
+    </div>
+    <div class="key">
+      <div class="swatch" style="background:linear-gradient(to right, var(--soft), rgba(29,158,117,0.20));border:1px solid var(--line)"></div>
+      <div class="key-txt"><b>Faint green — other people are free</b>
+        <span>The stronger the tint, the more of the group can make it. Handy for
+        spotting where everyone is already agreeing.</span></div>
+    </div>
+    <div class="key">
+      <div class="swatch" style="box-shadow:inset 0 0 0 2px rgba(224,138,30,0.65)"></div>
+      <div class="key-txt"><b>Orange outline — public holiday</b>
+        <span>Bank holidays, Tynwald Day and so on. Hold your finger on it to see which.</span></div>
+    </div>
+    <div class="key">
+      <div class="swatch" style="background:var(--soft);border:1px solid var(--line)"></div>
+      <div class="key-txt"><b>Plain — nobody's free yet</b>
+        <span>Or you haven't chosen it.</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><i class="ti ti-trophy"></i> Reading "Best times"</h2>
+    <p>Where the answer appears.</p>
+    <p style="font-size:15px;">
+      Tap <strong>Best times</strong> at the top. You'll see the options ranked, best
+      first, with a <strong>★</strong> on the winner. The number on the right — like
+      <code>4/5</code> — means four out of five people can make it. The list updates
+      by itself as people reply.
+    </p>
+    <p style="font-size:15px;margin-top:12px;">
+      Above it, the <strong>Participants</strong> list shows who's answered and who
+      you're still waiting on. Green means done, amber means pending.
+    </p>
+    <div class="note">
+      <strong>Not seeing anything useful?</strong>
+      Usually it means not enough people have replied yet, or the stretch of time you
+      asked for is longer than anyone's free run. Give people a nudge, or shorten what
+      you're asking for.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2><i class="ti ti-help-circle"></i> Common questions</h2>
+    <p>The ones people actually ask.</p>
+
+    <div class="faq">
+      <b>I closed the tab. Have I lost everything?</b>
+      <p>
+        No. Open the same link again and you'll go straight back in, with everything
+        you marked still there. If it <em>does</em> ask who you are, tap your name under
+        <strong>"Been here before?"</strong> and you'll pick up exactly where you left off.
+      </p>
+    </div>
+    <div class="faq">
+      <b>It says my name is already taken.</b>
+      <p>
+        That's you, from last time. Tap your name under <strong>"Been here before?"</strong>
+        rather than typing it in again.
+      </p>
+    </div>
+    <div class="faq">
+      <b>Can I change my answer?</b>
+      <p>Yes, any time. Go to <strong>Availability</strong> and tap to add or remove. It saves instantly.</p>
+    </div>
+    <div class="faq">
+      <b>I typed my name wrong.</b>
+      <p>On the Availability screen, tap <strong>"Not you?"</strong> next to your name, then rejoin with the right one.</p>
+    </div>
+    <div class="faq">
+      <b>Does it work on a phone?</b>
+      <p>
+        Yes — phone, tablet or computer, and everyone can use something different.
+        On a phone, tap the squares rather than dragging if that's easier.
+      </p>
+    </div>
+    <div class="faq">
+      <b>How long does a room last?</b>
+      <p>
+        Whatever the organiser chose when they set it up — a day, a week, or up to a year.
+        The Room tab shows a countdown. After that it's deleted along with everyone's answers.
+      </p>
+    </div>
+    <div class="faq">
+      <b>What's the "travel time buffer"?</b>
+      <p>
+        Only for hour-by-hour rooms. If you need half an hour to get there and back, set
+        it to 30 minutes and you'll only be counted as free if you've got that time spare
+        on either side.
+      </p>
+    </div>
+    <div class="faq">
+      <b>Who can see my answers?</b>
+      <p>
+        Anyone with the room link. It only ever holds the name you typed and the times
+        you picked — no email, no phone number, nothing else.
+      </p>
+    </div>
+  </div>
+
+  <div class="card" style="text-align:center;">
+    <h2 style="justify-content:center;"><i class="ti ti-rocket"></i> Ready?</h2>
+    <p>That's genuinely all of it.</p>
+    <a class="cta" href="/">Open the app</a>
+  </div>
+
+  <p class="foot">whencanwemeet.app</p>
+</div>
+</body>
+</html>

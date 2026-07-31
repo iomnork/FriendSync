@@ -393,6 +393,11 @@ purgeExpiredRooms();
 // on gov.uk. Failures are non-fatal — holidays.js falls back to disk cache.
 holidays.refresh().catch(() => {});
 
+// express.static already serves /help.html. Catch the extensionless form too,
+// since that is what anyone typing it by hand will use — otherwise it falls
+// through to the catch-all below and silently returns the app instead.
+app.get(['/help', '/guide', '/how-it-works'], (req, res) => res.redirect(301, '/help.html'));
+
 app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, "..", "client", "index.html"));
 });

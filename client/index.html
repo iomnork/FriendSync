@@ -795,6 +795,12 @@
         </div>
       </div>
     </div>
+
+    <p style="text-align:center;margin-top:1.5rem;font-size:14px;">
+      <a href="/help.html" style="color:var(--color-text-secondary);text-decoration:none;display:inline-flex;align-items:center;gap:6px;">
+        <i class="ti ti-help-circle" aria-hidden="true"></i> New here? Read the two-minute guide
+      </a>
+    </p>
   </div>
 
   <!-- ROOM CREATION -->
@@ -948,13 +954,28 @@
             </div>
           </div>
           <h2 style="font-size:18px;font-weight:700;margin-bottom:6px;color:var(--color-text-primary);">You're invited!</h2>
-          <p style="font-size:14px;color:var(--color-text-secondary);margin-bottom:1.5rem;">Enter your name or pick an alias to stay anonymous.</p>
+
+          <!-- Shown only when the room already has people in it. Without this,
+               anyone who loses their browser storage is locked out for good:
+               rejoining with the same name is rejected as a duplicate. -->
+          <div id="resume-block" style="display:none;margin:1.25rem 0;padding:14px;background:var(--color-background-secondary);border-radius:var(--border-radius-md);border:1px solid var(--color-border-tertiary);">
+            <p style="font-size:13px;font-weight:600;color:var(--color-text-primary);margin-bottom:4px;">Been here before?</p>
+            <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:10px;">Tap your name to pick up where you left off.</p>
+            <div class="alias-chips" id="resume-chips" style="margin:0;"></div>
+          </div>
+
+          <p id="join-new-label" style="font-size:14px;color:var(--color-text-secondary);margin-bottom:1.5rem;">Enter your name or pick an alias to stay anonymous.</p>
           <input type="text" id="join-name-input" placeholder="Enter your name..." style="width:100%;max-width:280px;text-align:center;margin:0 auto;display:block;" />
           <div class="or-divider">— or pick an alias —</div>
           <div class="alias-chips" id="alias-chips"></div>
           <div style="margin-top:1.5rem">
             <button id="join-btn" class="btn btn-primary" onclick="joinRoom()" style="min-width:160px">Join the room →</button>
           </div>
+          <p style="margin-top:1.25rem;font-size:13px;">
+            <a href="/help.html" style="color:var(--color-text-secondary);text-decoration:none;">
+              <i class="ti ti-help-circle" aria-hidden="true"></i> How does this work?
+            </a>
+          </p>
         </div>
       </div>
     </div>
@@ -1572,6 +1593,7 @@
 
     renderQuickFill();
     renderAliasChips();
+    renderResumeChips();
   }
 
   // navigator.clipboard only exists in a secure context (HTTPS or localhost).
@@ -1622,6 +1644,43 @@
     document.getElementById('alias-chips').innerHTML = shuffled
       .map(a => `<div class="chip" onclick="selectAlias(this,'${a}')">${a}</div>`).join('');
   }
+
+  /**
+   * Offer to resume as someone already in the room.
+   *
+   * Browser storage is not permanent — iOS Safari discards it after 7 days
+   * without a visit, private windows drop it on close, and a different browser
+   * never had it. When that happens, rejoining with the same name is refused
+   * as a duplicate, which used to mean permanent lockout from your own
+   * availability. Reclaiming a name is the escape hatch.
+   *
+   * The trade: anyone holding the room link can claim any name in it. For a
+   * link shared with family that is acceptable — the link is already the only
+   * access control — and it is plainly better than stranding someone.
+   */
+  function renderResumeChips() {
+    const block = document.getElementById('resume-block');
+    const chips = document.getElementById('resume-chips');
+    const label = document.getElementById('join-new-label');
+    if (!participants.length) { block.style.display = 'none'; return; }
+
+    block.style.display = '';
+    chips.innerHTML = participants
+      .map(p => `<div class="chip" onclick="resumeAs(${p.id})">${esc(p.name)}</div>`).join('');
+    label.textContent = 'Or, if you are new here, enter your name or pick an alias.';
+  }
+
+  async function resumeAs(id) {
+    const me = participants.find(p => p.id === id);
+    if (!me) return;
+    currentParticipantId = id;
+    isGuestView = true;
+    travelBuffer = me.travel_buffer_minutes || 0;
+    saveStoredRoom(currentRoomCode, { isHost: false, participantId: id, participantName: me.name });
+    document.getElementById('tab-btn-join').style.display = 'none';
+    updatePersonSelect();
+    showTab('avail');
+  }
   function selectAlias(el, alias) {
     document.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
     el.classList.add('selected');
@@ -1646,9 +1705,24 @@
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(err.error || 'Failed to join room');
         btn.textContent = 'Join the room →';
         btn.disabled = false;
+
+        // A duplicate name almost always means "this is me, I lost my session"
+        // — so point at the resume list instead of just refusing.
+        if (res.status === 409) {
+          const existing = participants.find(p => p.name.toLowerCase() === name.toLowerCase());
+          if (existing) {
+            flagMissing([[true, 'join-name-input']]);
+            const block = document.getElementById('resume-block');
+            block.style.display = '';
+            block.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            document.getElementById('join-new-label').innerHTML =
+              `<strong>${esc(name)}</strong> is already in this room. If that's you, tap your name above to carry on where you left off.`;
+            return;
+          }
+        }
+        alert(err.error || 'Failed to join room');
         return;
       }
       const me = await res.json();
@@ -2242,6 +2316,9 @@
     document.querySelectorAll('#app-container .section').forEach(s => s.classList.remove('active'));
     document.getElementById('tab-' + name).classList.add('active');
 
+    // Keep the resume list current — someone may have joined since this screen
+    // was first drawn.
+    if (name === 'join') renderResumeChips();
     if (name === 'avail') { updatePersonSelect(); refreshHeatmap(); }
     if (name === 'results') {
       computeAndShow(false);
